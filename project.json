@@ -1,0 +1,15 @@
+{
+  "projectVersion": 1,
+  "name": "difflens",
+  "description": "DiffLens is a compact NSH desktop Git client focused on reviewing changes across nested repositories.",
+  "skills": {
+    "installed": [],
+    "shared": []
+  },
+  "repositories": [],
+  "paths": {
+    "knowledge": "docs",
+    "runtime": "runtime",
+    "tmp": "tmp"
+  }
+}
