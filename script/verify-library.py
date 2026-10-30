@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 import subprocess
 import tempfile
+from nsh_toolchain import nsh_command
 
 PROJECT = Path(__file__).resolve().parent.parent
 
@@ -174,9 +175,10 @@ test("language switches live and survives restart", async () => {
     expect(app.enabled("id:open-logs")).toBe(true);
     expect(app.enabled("id:open-crash-reports")).toBe(true);
   }
+  await app.press("id:choose-language");
   await app.press("id:language-zh");
   await app.waitUntil(() => JSON.parse(app.storage()[settingsKey] || "{}").language === "zh");
-  await app.waitFor("语言切换后立即生效。");
+  await app.waitFor("修改后立即生效。");
   if (NATIVE) await app.screenshot(SETTINGS_IMAGE);
   await app.press("id:close-settings");
   await app.waitFor("已暂存 · src/main.rs");
@@ -185,13 +187,15 @@ test("language switches live and survives restart", async () => {
   expect(app.shows("label:添加已有仓库")).toBe(true);
   expect(app.shows("label:取消暂存 src/main.rs")).toBe(true);
   await app.press("id:open-settings");
+  await app.press("id:choose-language");
   await app.press("id:language-en");
   await app.waitUntil(() => JSON.parse(app.storage()[settingsKey]).language === "en");
-  await app.waitFor("Language changes apply immediately.");
+  await app.waitFor("Changes apply immediately.");
   await app.press("id:close-settings");
   await app.waitFor("Staged · src/main.rs");
   expect(app.value("label:Commit message")).toBe("keep my draft");
   await app.press("id:open-settings");
+  await app.press("id:choose-language");
   await app.press("id:language-zh");
   await app.waitUntil(() => JSON.parse(app.storage()[settingsKey]).language === "zh");
   await app.press("id:close-settings");
@@ -260,7 +264,7 @@ def main():
         for token, value in replacements.items():
             code = code.replace(token, value)
         test_file.write_text(code)
-        command = ["nsh", "test", str(test_file)]
+        command = [nsh_command(), "test", str(test_file)]
         if options.target:
             command.extend(["--target", options.target])
         env = dict(os.environ, RUSTUP_TOOLCHAIN="stable")

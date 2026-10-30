@@ -738,7 +738,7 @@ fn ensure_actionable_file(file: &ChangedFile, file_path: &str) -> Result<(), Str
     Ok(())
 }
 
-fn validate_relative_file_path(file_path: &str) -> Result<(), String> {
+pub(super) fn validate_relative_file_path(file_path: &str) -> Result<(), String> {
     if file_path.is_empty() {
         return Err("Select a changed file first.".to_owned());
     }
@@ -881,15 +881,33 @@ fn perform_action(
     inspect_repository_at(&repository_path)
 }
 
-fn run_git(repository_path: &Path, arguments: &[&str]) -> Result<Vec<u8>, String> {
-    let output = Command::new("git")
+pub(super) fn run_git(repository_path: &Path, arguments: &[&str]) -> Result<Vec<u8>, String> {
+    require_success(git_output(repository_path, arguments)?)
+}
+
+/// For read commands whose documented exit code 1 means "not found" or "false".
+pub(super) fn run_git_optional(
+    repository_path: &Path,
+    arguments: &[&str],
+) -> Result<Option<Vec<u8>>, String> {
+    let output = git_output(repository_path, arguments)?;
+    if output.status.code() == Some(1) && output.stderr.is_empty() {
+        return Ok(None);
+    }
+    require_success(output).map(Some)
+}
+
+pub(super) fn git_output(
+    repository_path: &Path,
+    arguments: &[&str],
+) -> Result<std::process::Output, String> {
+    Command::new("git")
         .arg("--no-optional-locks")
         .arg("-C")
         .arg(repository_path)
         .args(arguments)
         .output()
-        .map_err(|error| format!("Cannot start Git: {error}"))?;
-    require_success(output)
+        .map_err(|error| format!("Cannot start Git: {error}"))
 }
 
 fn run_git_with_literal_pathspecs(
@@ -907,7 +925,7 @@ fn run_git_with_literal_pathspecs(
     require_success(output)
 }
 
-fn run_git_diff(
+pub(super) fn run_git_diff(
     repository_path: &Path,
     arguments: &[&str],
     difference_is_exit_one: bool,
@@ -935,7 +953,7 @@ fn require_success(output: std::process::Output) -> Result<Vec<u8>, String> {
     Ok(output.stdout)
 }
 
-fn command_error(output: &std::process::Output) -> String {
+pub(super) fn command_error(output: &std::process::Output) -> String {
     let message = String::from_utf8_lossy(&output.stderr).trim().to_owned();
     if message.is_empty() {
         "Git operation failed.".to_owned()

@@ -2,7 +2,8 @@
   "name": "DiffLens",
   "id": "com.sogud.difflens",
   "version": "0.1.0",
-  "build": 5,
+  "build": 13,
+  "theme": "theme.json",
   "icon": "assets/difflens-icon.png",
   "rust": "."
 }

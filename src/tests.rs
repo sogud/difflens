@@ -6,6 +6,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+mod workflow_cases;
+
 static NEXT_TEMP_DIRECTORY: AtomicU64 = AtomicU64::new(1);
 
 struct TemporaryTree {
@@ -628,4 +630,351 @@ fn development_directories_are_skipped_across_languages_without_hiding_source_re
         .unwrap();
     assert_eq!(source_cache.children.len(), 1);
     assert_eq!(source_cache.children[0].name, "nested-source");
+}
+
+#[test]
+fn commit_review_handles_root_rename_delete_and_literal_paths_without_writes() {
+    let tree = TemporaryTree::new();
+    let root = tree.path("history");
+    init_repository(&root);
+    commit_file(
+        &root,
+        "中文\tfile\n.txt",
+        "original history\n",
+        "initial history",
+    );
+    let first = String::from_utf8(expect_success(git(&root, &["rev-parse", "HEAD"])))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let initial = super::history::inspect_commit(root.clone(), first.clone()).unwrap();
+    assert!(initial.parent_ids.is_empty());
+    assert_eq!(initial.files[0].path, "中文\tfile\n.txt");
+    assert!(
+        super::history::commit_diff(root.clone(), first.clone(), initial.files[0].path.clone())
+            .unwrap()
+            .contains("+original history")
+    );
+
+    expect_success(git(
+        &root,
+        &["mv", "--", "中文\tfile\n.txt", ":(glob)*.txt"],
+    ));
+    fs::write(root.join("binary.dat"), b"before\0binary").unwrap();
+    expect_success(git(&root, &["add", "--", "."]));
+    expect_success(git(&root, &["commit", "-m", "rename and binary"]));
+    let renamed = String::from_utf8(expect_success(git(&root, &["rev-parse", "HEAD"])))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let details = super::history::inspect_commit(root.clone(), renamed.clone()).unwrap();
+    let file = details
+        .files
+        .iter()
+        .find(|file| file.path == ":(glob)*.txt")
+        .unwrap();
+    assert_eq!(file.old_path.as_deref(), Some("中文\tfile\n.txt"));
+    let patch =
+        super::history::commit_diff(root.clone(), renamed.clone(), file.path.clone()).unwrap();
+    assert!(patch.contains("rename from"));
+    assert!(!patch.contains("binary.dat"));
+    let binary =
+        super::history::commit_diff(root.clone(), renamed.clone(), "binary.dat".to_owned())
+            .unwrap();
+    assert!(binary.contains("Binary files"));
+
+    expect_success(git(
+        &root,
+        &["--literal-pathspecs", "rm", "--", ":(glob)*.txt"],
+    ));
+    expect_success(git(&root, &["commit", "-m", "delete file"]));
+    let deleted = String::from_utf8(expect_success(git(&root, &["rev-parse", "HEAD"])))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let deleted_details = super::history::inspect_commit(root.clone(), deleted.clone()).unwrap();
+    assert_eq!(deleted_details.files[0].status, "D");
+    assert!(
+        super::history::commit_diff(root.clone(), deleted, ":(glob)*.txt".to_owned())
+            .unwrap()
+            .contains("-original history")
+    );
+
+    fs::write(root.join("binary.dat"), b"dirty local\0content").unwrap();
+    let before = expect_success(git(&root, &["status", "--porcelain=v2", "-z"]));
+    assert!(super::history::inspect_commit(root.clone(), "HEAD".to_owned()).is_err());
+    assert!(super::history::inspect_commit(root.clone(), "--all".to_owned()).is_err());
+    assert!(
+        super::history::commit_diff(root.clone(), first.clone(), "../escape".to_owned()).is_err()
+    );
+    assert!(
+        super::history::commit_diff(root.clone(), first.clone(), "binary.dat".to_owned()).is_err()
+    );
+    let blob = String::from_utf8(expect_success(git(
+        &root,
+        &["rev-parse", "HEAD:binary.dat"],
+    )))
+    .unwrap()
+    .trim()
+    .to_owned();
+    assert!(super::history::inspect_commit(root.clone(), blob).is_err());
+    super::history::commit_diff(root.clone(), renamed, "binary.dat".to_owned()).unwrap();
+    assert_eq!(
+        expect_success(git(&root, &["status", "--porcelain=v2", "-z"])),
+        before
+    );
+    assert_eq!(
+        fs::read(root.join("binary.dat")).unwrap(),
+        b"dirty local\0content"
+    );
+}
+
+#[test]
+fn commit_review_compares_merge_against_first_parent_and_handles_empty_commit() {
+    let tree = TemporaryTree::new();
+    let root = tree.path("merge-history");
+    init_repository(&root);
+    commit_file(&root, "base.txt", "base\n", "base");
+    expect_success(git(&root, &["switch", "-c", "feature"]));
+    commit_file(&root, "feature.txt", "feature payload\n", "feature");
+    expect_success(git(&root, &["switch", "main"]));
+    commit_file(&root, "main.txt", "main payload\n", "main");
+    let first_parent = String::from_utf8(expect_success(git(&root, &["rev-parse", "HEAD"])))
+        .unwrap()
+        .trim()
+        .to_owned();
+    expect_success(git(
+        &root,
+        &["merge", "--no-ff", "feature", "-m", "merge feature"],
+    ));
+    let id = String::from_utf8(expect_success(git(&root, &["rev-parse", "HEAD"])))
+        .unwrap()
+        .trim()
+        .to_owned();
+    let commit = super::history::inspect_commit(root.clone(), id.clone()).unwrap();
+    assert_eq!(commit.parent_ids.len(), 2);
+    assert_eq!(commit.parent_ids[0], first_parent);
+    assert_eq!(commit.files.len(), 1);
+    assert_eq!(commit.files[0].path, "feature.txt");
+    assert!(
+        super::history::commit_diff(root.clone(), id, "feature.txt".to_owned())
+            .unwrap()
+            .contains("+feature payload")
+    );
+    expect_success(git(&root, &["commit", "--allow-empty", "-m", "empty"]));
+    let empty = String::from_utf8(expect_success(git(&root, &["rev-parse", "HEAD"])))
+        .unwrap()
+        .trim()
+        .to_owned();
+    assert!(
+        super::history::inspect_commit(root, empty)
+            .unwrap()
+            .files
+            .is_empty()
+    );
+}
+
+#[test]
+fn history_pages_keep_their_snapshot_and_search_beyond_the_first_page() {
+    let temporary = TemporaryTree::new();
+    let root = temporary.path("paged-history");
+    init_repository(&root);
+    for number in 0..65 {
+        commit_file(
+            &root,
+            "tracked.txt",
+            &format!("revision {number}\n"),
+            &format!("fixture revision {number:03}"),
+        );
+    }
+    let expected = String::from_utf8(expect_success(git(
+        &root,
+        &["log", "--topo-order", "--format=%H"],
+    )))
+    .unwrap();
+    let expected: Vec<_> = expected.lines().map(str::to_owned).collect();
+    let first =
+        super::history::history_page(root.clone(), String::new(), "message".to_owned(), None, 0)
+            .unwrap();
+    assert_eq!(first.commits.len(), 50);
+    assert_eq!(first.next_offset, Some(50));
+    assert_eq!(
+        first
+            .commits
+            .iter()
+            .map(|commit| commit.id.clone())
+            .collect::<Vec<_>>(),
+        expected[..50]
+    );
+    commit_file(&root, "tracked.txt", "new head\n", "new after snapshot");
+    fs::write(root.join("tracked.txt"), "uncommitted content\n").unwrap();
+    let before = expect_success(git(&root, &["status", "--porcelain=v2", "-z"]));
+    let second = super::history::history_page(
+        root.clone(),
+        String::new(),
+        "message".to_owned(),
+        first.tip_id.clone(),
+        50,
+    )
+    .unwrap();
+    assert_eq!(
+        second
+            .commits
+            .iter()
+            .map(|commit| commit.id.clone())
+            .collect::<Vec<_>>(),
+        expected[50..]
+    );
+    assert!(second.next_offset.is_none());
+    assert_ne!(second.tip_id, second.current_tip_id);
+    let search = super::history::history_page(
+        root.clone(),
+        "fixture revision 003".to_owned(),
+        "message".to_owned(),
+        first.tip_id.clone(),
+        0,
+    )
+    .unwrap();
+    assert_eq!(search.commits.len(), 1);
+    assert_eq!(search.commits[0].subject, "fixture revision 003");
+    let latest =
+        super::history::history_page(root.clone(), String::new(), "message".to_owned(), None, 0)
+            .unwrap();
+    assert_eq!(latest.commits[0].subject, "new after snapshot");
+    assert_eq!(
+        expect_success(git(&root, &["status", "--porcelain=v2", "-z"])),
+        before
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("tracked.txt")).unwrap(),
+        "uncommitted content\n"
+    );
+}
+
+#[test]
+fn history_search_uses_literals_and_limits_ids_to_snapshot_ancestors() {
+    let temporary = TemporaryTree::new();
+    let root = temporary.path("history-search");
+    init_repository(&root);
+    commit_file(&root, "file.txt", "base\n", "base");
+    expect_success(git(
+        &root,
+        &[
+            "commit",
+            "--allow-empty",
+            "--author",
+            "Another Name <another@example.invalid>",
+            "-m",
+            "literal [x].* --all",
+        ],
+    ));
+    let literal = super::history::history_page(
+        root.clone(),
+        "[x].* --all".to_owned(),
+        "message".to_owned(),
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(literal.commits.len(), 1);
+    let id = literal.commits[0].id.clone();
+    assert_eq!(
+        super::history::history_page(
+            root.clone(),
+            "Another Name".to_owned(),
+            "author".to_owned(),
+            None,
+            0
+        )
+        .unwrap()
+        .commits
+        .len(),
+        1
+    );
+    assert_eq!(
+        super::history::history_page(root.clone(), id[..8].to_owned(), "id".to_owned(), None, 0)
+            .unwrap()
+            .commits[0]
+            .id,
+        id
+    );
+    assert!(
+        super::history::history_page(
+            root.clone(),
+            "[z].*".to_owned(),
+            "message".to_owned(),
+            None,
+            0
+        )
+        .unwrap()
+        .commits
+        .is_empty()
+    );
+    expect_success(git(&root, &["switch", "-c", "other"]));
+    commit_file(&root, "other.txt", "other\n", "other branch only");
+    let foreign = String::from_utf8(expect_success(git(&root, &["rev-parse", "HEAD"])))
+        .unwrap()
+        .trim()
+        .to_owned();
+    expect_success(git(&root, &["switch", "main"]));
+    assert!(
+        super::history::history_page(root.clone(), foreign, "id".to_owned(), None, 0)
+            .unwrap()
+            .commits
+            .is_empty()
+    );
+    expect_success(git(&root, &["switch", "--detach", &id]));
+    assert_eq!(
+        super::history::history_page(root, String::new(), "message".to_owned(), None, 0)
+            .unwrap()
+            .tip_id,
+        Some(id)
+    );
+}
+
+#[test]
+fn history_pages_handle_unborn_heads_and_reject_invalid_inputs() {
+    let temporary = TemporaryTree::new();
+    let root = temporary.path("empty-history");
+    init_repository(&root);
+    let empty =
+        super::history::history_page(root.clone(), String::new(), "message".to_owned(), None, 0)
+            .unwrap();
+    assert!(empty.commits.is_empty());
+    assert!(empty.tip_id.is_none());
+    commit_file(&root, "file.txt", "base\n", "base");
+    assert!(
+        super::history::history_page(
+            root.clone(),
+            String::new(),
+            "message".to_owned(),
+            Some("HEAD".to_owned()),
+            0
+        )
+        .is_err()
+    );
+    assert!(
+        super::history::history_page(root.clone(), "--all".to_owned(), "id".to_owned(), None, 0)
+            .is_err()
+    );
+    assert!(
+        super::history::history_page(root.clone(), "x".repeat(513), "message".to_owned(), None, 0)
+            .is_err()
+    );
+    assert!(
+        super::history::history_page(
+            root.clone(),
+            String::new(),
+            "unsupported".to_owned(),
+            None,
+            0
+        )
+        .is_err()
+    );
+    assert!(
+        super::history::history_page(root, "0".repeat(40), "id".to_owned(), None, 0)
+            .unwrap()
+            .commits
+            .is_empty()
+    );
 }

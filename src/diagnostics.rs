@@ -1,5 +1,5 @@
 //! Local session logs and panic reports. No telemetry leaves this machine.
-use nsh_core::ui::prelude::JsObject;
+use nsh_core::prelude::JsObject;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{

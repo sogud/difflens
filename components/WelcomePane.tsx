@@ -1,4 +1,5 @@
 import { t } from "../i18n";
+import { accentClasses } from "../appearance";
 import { Text, View } from "nsh";
 import { Button } from "nsh/base";
 import type { SourceKind } from "../library";
@@ -33,16 +34,16 @@ export function WelcomePane(props: {
         <Button
           disabled={props.busy}
           onPress={() => props.onChoose("repository")}
-          class="rounded-md bg-primary px-3 py-1.5 active:opacity-80 disabled:opacity-40"
+          class={"h-8 justify-center rounded-md px-3 active:opacity-80 disabled:opacity-40 " + accentClasses().fill}
         >
-          <Text class="text-[12px] font-medium text-primary-foreground">
+          <Text class={"text-[12px] font-medium " + accentClasses().foreground}>
             {t("Add repository…")}
           </Text>
         </Button>
         <Button
           disabled={props.busy}
           onPress={() => props.onChoose("directory")}
-          class="rounded-md border border-border px-3 py-1.5 active:bg-muted disabled:opacity-40"
+          class="rounded-md bg-secondary px-3 py-1.5 hover:bg-accent active:bg-accent disabled:opacity-35"
         >
           <Text class="text-[12px] font-medium text-foreground">
             {t("Add directory…")}

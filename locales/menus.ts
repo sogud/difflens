@@ -1,0 +1,25 @@
+import type { TranslationCatalog } from "./types";
+
+export const menuTranslations = {
+  "File": { ja: "ファイル", ko: "파일", fr: "Fichier", de: "Datei", es: "Archivo", pt: "Arquivo" },
+  "Edit": { ja: "編集", ko: "편집", fr: "Édition", de: "Bearbeiten", es: "Editar", pt: "Editar" },
+  "View": { ja: "表示", ko: "보기", fr: "Affichage", de: "Ansicht", es: "Ver", pt: "Visualizar" },
+  "Window": { ja: "ウィンドウ", ko: "윈도우", fr: "Fenêtre", de: "Fenster", es: "Ventana", pt: "Janela" },
+  "Nested Repositories": { ja: "階層リポジトリ", ko: "중첩 저장소", fr: "Dépôts imbriqués", de: "Verschachtelte Repositories", es: "Repositorios anidados", pt: "Repositórios aninhados" },
+  "Flat Repositories": { ja: "フラットなリポジトリ一覧", ko: "저장소 전체 목록", fr: "Liste plate des dépôts", de: "Flache Repository-Liste", es: "Lista plana de repositorios", pt: "Lista plana de repositórios" },
+  "About DiffLens": { ja: "DiffLensについて", ko: "DiffLens 정보", fr: "À propos de DiffLens", de: "Über DiffLens", es: "Acerca de DiffLens", pt: "Sobre o DiffLens" },
+  "Hide DiffLens": { ja: "DiffLensを隠す", ko: "DiffLens 가리기", fr: "Masquer DiffLens", de: "DiffLens ausblenden", es: "Ocultar DiffLens", pt: "Ocultar DiffLens" },
+  "Hide Others": { ja: "ほかを隠す", ko: "기타 가리기", fr: "Masquer les autres", de: "Andere ausblenden", es: "Ocultar otros", pt: "Ocultar outros" },
+  "Show All": { ja: "すべて表示", ko: "모두 보기", fr: "Tout afficher", de: "Alle einblenden", es: "Mostrar todo", pt: "Mostrar tudo" },
+  "Quit DiffLens": { ja: "DiffLensを終了", ko: "DiffLens 종료", fr: "Quitter DiffLens", de: "DiffLens beenden", es: "Salir de DiffLens", pt: "Sair do DiffLens" },
+  "Close Window": { ja: "ウィンドウを閉じる", ko: "윈도우 닫기", fr: "Fermer la fenêtre", de: "Fenster schließen", es: "Cerrar ventana", pt: "Fechar janela" },
+  "Undo": { ja: "取り消す", ko: "실행 취소", fr: "Annuler", de: "Rückgängig", es: "Deshacer", pt: "Desfazer" },
+  "Redo": { ja: "やり直す", ko: "실행 복귀", fr: "Rétablir", de: "Wiederholen", es: "Rehacer", pt: "Refazer" },
+  "Cut": { ja: "カット", ko: "잘라내기", fr: "Couper", de: "Ausschneiden", es: "Cortar", pt: "Recortar" },
+  "Copy": { ja: "コピー", ko: "복사", fr: "Copier", de: "Kopieren", es: "Copiar", pt: "Copiar" },
+  "Paste": { ja: "ペースト", ko: "붙여넣기", fr: "Coller", de: "Einfügen", es: "Pegar", pt: "Colar" },
+  "Select All": { ja: "すべて選択", ko: "모두 선택", fr: "Tout sélectionner", de: "Alles auswählen", es: "Seleccionar todo", pt: "Selecionar tudo" },
+  "Minimize": { ja: "しまう", ko: "최소화", fr: "Réduire", de: "Minimieren", es: "Minimizar", pt: "Minimizar" },
+  "Zoom": { ja: "拡大／縮小", ko: "확대/축소", fr: "Zoom", de: "Zoomen", es: "Zoom", pt: "Zoom" },
+  "Toggle Full Screen": { ja: "フルスクリーンを切り替え", ko: "전체 화면 전환", fr: "Basculer en plein écran", de: "Vollbild umschalten", es: "Alternar pantalla completa", pt: "Alternar tela cheia" },
+} satisfies TranslationCatalog;

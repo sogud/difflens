@@ -1,7 +1,7 @@
 //! Cancellable discovery: publish usable repositories while a large tree is still being walked.
 use crate::{RepositoryNode, ScanWarning, WorkspaceScan, git};
 use ignore::{WalkBuilder, WalkState};
-use nsh_core::ui::prelude::*;
+use nsh_core::prelude::*;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},

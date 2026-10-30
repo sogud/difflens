@@ -17,16 +17,24 @@ import file from "../assets/icons/file-code-2.svg";
 import worktree from "../assets/icons/git-fork.svg";
 import stop from "../assets/icons/x.svg";
 import rescan from "../assets/icons/folder-search.svg";
+import minus from "../assets/icons/minus.svg";
+import history from "../assets/icons/history.svg";
+import focus from "../assets/icons/focus.svg";
+import lens from "../assets/icons/lens.svg";
+import chevronUp from "../assets/icons/chevron-up.svg";
+import diffSplit from "../assets/icons/diff-split.svg";
+import diffUnified from "../assets/icons/diff-unified.svg";
 
-// Lucide 0.543.0; license and source details are kept with the SVG assets.
+// Icon sources and license notices are kept with the SVG assets.
 const icons = {
   addRepository, addDirectory, refresh, settings, nested, flat, more,
-  chevronRight, chevronDown, plus, fetch, pull, push, folder, file, worktree, stop, rescan,
+  chevronRight, chevronDown, chevronUp, plus, minus, fetch, pull, push, folder, file, worktree, stop, rescan, history, focus, lens, diffSplit, diffUnified,
 };
+export type IconName = keyof typeof icons;
 
 /** Decorative native SVG; the surrounding control owns its accessible label. */
 export function Icon(props: {
-  name: keyof typeof icons;
+  name: IconName;
   size?: number;
   muted?: boolean;
   spinning?: boolean;

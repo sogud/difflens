@@ -1,5 +1,6 @@
 import type {
   ChangedFile,
+  GitOperationRequest,
   FilePreview,
   RepositoryDetails,
   RepositoryNode,
@@ -53,8 +54,11 @@ export interface ChangedFileRowProps {
   section: "staged" | "unstaged";
   selected: boolean;
   disabled: boolean;
+  tree?: boolean;
   onSelect: (path: string, staged: boolean) => void;
   onAction: (action: RepositoryAction) => void;
+  onWorkflow?: (request: GitOperationRequest) => void;
+  onOpenEditor?: (path: string) => void;
 }
 
 export type FilePreviewState =
@@ -64,4 +68,5 @@ export type FilePreviewState =
 
 export type ReviewView =
   | { kind: "diff" }
+  | { kind: "commit"; repositoryPath: string; commitId: string }
   | { kind: "file"; state: FilePreviewState };

@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from nsh_toolchain import nsh_command
 
 PROJECT = Path(__file__).resolve().parent.parent
 
@@ -55,6 +56,7 @@ def main():
     args = parser.parse_args()
     if sys.platform != "darwin":
         parser.error("macOS packaging requires a Mac.")
+    cli = nsh_command()
     config = json.loads((PROJECT / "nsh.json").read_text())
     env = dict(os.environ)
     env.setdefault("RUSTUP_TOOLCHAIN", "stable")
@@ -64,7 +66,7 @@ def main():
         raise RuntimeError("Keep Cargo.toml and nsh.json versions in sync.")
     run("cargo", "build", "--release", "--locked", "--bin", "difflens-runner", env=env)
     output = PROJECT / ".nsh/out"
-    run("nsh", "package", "--target", "macos", "--out", output, env=env)
+    run(cli, "package", "--target", "macos", "--out", output, env=env)
     bundle = output / f'{config["name"]}.app'
     require_matching_bundle(bundle, config["id"])
     # Keep NSH's bundle, assets and icon; replace only its generated entry point.

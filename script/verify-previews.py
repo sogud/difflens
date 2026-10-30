@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+from nsh_toolchain import nsh_command
 
 PROJECT = Path(__file__).resolve().parent.parent
 
@@ -45,6 +46,14 @@ test("Unicode diff and clean files remain readable", async () => {
   expect(app.shows("id:file-preview-editor")).toBe(true);
   await app.press("label:Refresh current source");
   await app.waitUntil(() => app.enabled("label:Refresh current source") && app.shows("id:file-preview-editor") && app.shows("id:file-browser"), { timeout: 15000 });
+  if (!app.shows("label:Preview file docs/unchanged.md")) {
+    await app.press("label:Toggle folder docs");
+    await app.waitFor("label:Preview file docs/unchanged.md");
+  }
+  await app.rightClick("label:Preview file docs/unchanged.md");
+  await app.waitUntil(() => app.menu() !== null, { timeout: 3000 });
+  await app.chooseMenuItem("Copy file path");
+  expect(app.clipboard()).toBe("docs/unchanged.md");
   if (NATIVE) await app.screenshot(FILES_IMAGE);
   await app.press("id:refresh-files");
   await app.waitFor("id:file-preview-editor");
@@ -69,8 +78,9 @@ test("linked worktrees outside a source can be opened", async () => {
   await app.waitFor("id:file-preview-editor");
   if (NATIVE) await app.screenshot(WORKTREES_IMAGE);
   await app.press("id:open-settings");
+  await app.press("id:choose-language");
   await app.press("id:language-zh");
-  await app.waitFor("语言切换后立即生效。");
+  await app.waitFor("修改后立即生效。");
   await app.press("id:close-settings");
   expect(app.shows("只读")).toBe(true);
   expect(app.shows("关联 worktree")).toBe(true);
@@ -122,7 +132,7 @@ def main():
         for token, value in replacements.items():
             code = code.replace(token, value)
         test_file.write_text(code)
-        command = ["nsh", "test", str(test_file)]
+        command = [nsh_command(), "test", str(test_file)]
         if args.target:
             command += ["--target", args.target]
         try:

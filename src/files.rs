@@ -1,5 +1,5 @@
 //! Read-only file browsing bounded by the selected repository root.
-use nsh_core::ui::prelude::*;
+use nsh_core::prelude::*;
 use std::{
     fs,
     path::{Component, Path, PathBuf},

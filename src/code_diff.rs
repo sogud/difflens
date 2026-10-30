@@ -1,6 +1,6 @@
 //! The official DiffView with native Unicode widths and single-line code rows.
-use nsh_base::{DiffLayout, DiffViewClasses, diff_view};
-use nsh_core::ui::prelude::*;
+use nsh_base::{DiffLayout, DiffView, DiffViewApi, DiffViewClasses, diff_view};
+use nsh_core::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Props)]
 pub struct CodeDiffProps {
@@ -14,11 +14,40 @@ pub struct CodeDiffProps {
     /// One logical code row in points.
     #[prop(default = 18.0)]
     pub line_height: Prop<f32>,
+    /// Side-by-side or unified review.
+    #[prop(default = DiffLayout::Unified)]
+    pub layout: Prop<DiffLayout>,
+}
+
+pub struct CodeDiffApi {
+    view: ComponentRef<DiffView>,
+}
+
+#[methods]
+impl CodeDiffApi {
+    /// Scroll to the selected change.
+    pub fn go_to_hunk(&self, index: u32) {
+        if let Some(view) = self.view.api::<DiffViewApi>() {
+            view.go_to_hunk(index);
+        }
+    }
+
+    /// Scroll to the next change and return its index.
+    pub fn next_hunk(&self) -> Option<u32> {
+        self.view.api::<DiffViewApi>().and_then(|view| view.next_hunk())
+    }
+
+    /// Scroll to the previous change and return its index.
+    pub fn previous_hunk(&self) -> Option<u32> {
+        self.view.api::<DiffViewApi>().and_then(|view| view.previous_hunk())
+    }
 }
 
 /// Official NSH DiffView, keeping CJK glyphs from wrapping into neighboring rows.
-#[component]
-pub fn CodeDiff(props: CodeDiffProps) -> impl IntoElement {
+#[component(methods = CodeDiffApi)]
+pub fn CodeDiff(props: CodeDiffProps, cx: Scope<NoEvent>) -> impl IntoElement {
+    let reference = component_ref::<DiffView>();
+    cx.methods(CodeDiffApi { view: reference });
     let classes = computed(move || {
         let font = format!("{}px {}", props.font_size.get(), props.font_family.get());
         let width = patch_width(&props.patch.get(), &font);
@@ -27,8 +56,9 @@ pub fn CodeDiff(props: CodeDiffProps) -> impl IntoElement {
         classes
     });
     diff_view()
+        .component_ref(&reference)
         .patch(move || Some(props.patch.get()))
-        .layout(DiffLayout::Unified)
+        .layout(move || props.layout.get())
         .font_family(move || Some(props.font_family.get()))
         .font_size(move || props.font_size.get())
         .line_height(move || props.line_height.get())

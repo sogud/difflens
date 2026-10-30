@@ -1,9 +1,13 @@
+import { Hint } from "./Hint";
 import { cleanup, computed, effect, List, signal, Text, untracked, View } from "nsh";
+import { Menu } from "nsh/desktop";
+import { copyText } from "../context-menu";
 import { Button } from "nsh/base";
 import { Workspace, type FileEntry, type RepositoryDetails } from "difflens/native";
 import { t } from "../i18n";
 import { errorMessage } from "../diagnostics";
 import { Icon } from "./Icon";
+import { IconButton } from "./IconButton";
 import { LoadingStatus } from "./LoadingStatus";
 
 type Folder =
@@ -16,10 +20,12 @@ type Row =
   | { kind: "failed"; path: string; depth: number; error: string };
 
 export function FileBrowser(props: {
+  revision: number;
   repository: RepositoryDetails;
   selectedPath: string | null;
   disabled: boolean;
   onPreview: (path: string) => void;
+  onOpenEditor: (path: string) => void;
 }) {
   const folders = signal<Record<string, Folder>>({});
   const expanded = signal<string[]>([""]);
@@ -40,6 +46,8 @@ export function FileBrowser(props: {
 
   effect(() => {
     const root = props.repository.path;
+    // Refresh explicit repository snapshots, without tying reads to the active tab.
+    void props.revision;
     untracked(() => {
       generation += 1;
       folders.set({});
@@ -90,15 +98,14 @@ export function FileBrowser(props: {
   return <View testID="file-browser" class="min-h-0 flex-1">
     <View class="flex-row items-center gap-2 px-2 py-1">
       <Text class="min-w-0 flex-1 text-[11px] text-muted-foreground">{t("All files · read-only preview")}</Text>
-      <Button testID="refresh-files" accessibilityLabel={t("Refresh files")} tooltip={t("Refresh files")}
-        disabled={props.disabled || folders()[""]?.kind === "loading"} onPress={refresh}
-        class="size-6 items-center justify-center rounded hover:bg-muted disabled:opacity-40"><Icon name="refresh" size={13} /></Button>
+      <IconButton testID="refresh-files" icon="refresh" compact label={t("Refresh files")}
+        disabled={props.disabled || folders()[""]?.kind === "loading"} onPress={refresh} />
     </View>
     <List
       each={rows()}
       keyExtractor={(row) => row.kind + ":" + (row.kind === "entry" ? row.entry.path : row.path)}
       class="min-h-0 flex-1"
-      contentClass="px-1 pb-2"
+      contentClass="pb-2"
       empty={<Text class="px-2 py-2 text-[11px] text-muted-foreground">{t("This folder is empty.")}</Text>}
     >{(item) => {
       const row = computed(item);
@@ -109,18 +116,21 @@ export function FileBrowser(props: {
             const current = row();
             if (current.kind !== "entry") return null;
             const entry = current.entry;
-            return <Button
+            return <View tooltip={<Hint text={entry.path} />} onContextMenu={(event) => { void Menu.popup([
+                { label: t(entry.isDirectory ? "Toggle folder {path}" : "Preview file {path}", { path: entry.path }), disabled: props.disabled, onSelect: () => choose(entry) },
+                { label: t("Copy file path"), onSelect: () => copyText(entry.path) },
+                { label: t("Open in editor"), disabled: props.disabled || entry.isDirectory, onSelect: () => props.onOpenEditor(entry.path) },
+              ], event.pagePosition); }}><Button
               selected={props.selectedPath === entry.path}
               disabled={props.disabled}
               accessibilityLabel={t(entry.isDirectory ? "Toggle folder {path}" : "Preview file {path}", { path: entry.path })}
-              tooltip={entry.path}
               onPress={() => choose(entry)}
-              class="flex-row items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-muted selected:bg-accent disabled:opacity-40"
+              class="h-7 flex-row items-center gap-1.5 px-2 text-left hover:bg-muted selected:bg-accent disabled:opacity-40"
             >
               {entry.isDirectory ? <Icon name={expanded().includes(entry.path) ? "chevronDown" : "chevronRight"} size={11} muted /> : <View class="w-[11px]" />}
               <Icon name={entry.isDirectory ? "folder" : "file"} size={14} muted />
               <Text numberOfLines={1} class="min-w-0 flex-1 text-[12px] text-foreground">{entry.name}</Text>
-            </Button>;
+            </Button></View>;
           })()}
       </View>;
     }}</List>

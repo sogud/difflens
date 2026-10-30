@@ -1,16 +1,104 @@
-import { signal } from "nsh";
-import { locale } from "nsh/device";
-import { Storage } from "nsh/storage";
-
-export type Language = "zh" | "en";
-export const SETTINGS_STORAGE_KEY = "difflens.settings.v1";
-const languageState = signal<Language>(
-  locale().toLowerCase().startsWith("zh") ? "zh" : "en",
-);
-export const language = () => languageState();
+import {
+  language, restorePreferences, updatePreferences, InvalidPreferencesError,
+  PREFERENCES_STORAGE_KEY, type Language,
+} from "./preferences";
+import { workflowChinese, workflowTranslations } from "./locales/workflows";
+import { historyTranslations } from "./locales/history";
+import { settingsTranslations } from "./locales/settings";
+import { menuTranslations } from "./locales/menus";
+import { fileTranslations } from "./locales/files";
+import { gitTranslations } from "./locales/git";
+import { importTranslations } from "./locales/imports";
+import { workspaceTranslations } from "./locales/workspace";
+import type { TranslatedMessage } from "./locales/types";
+export { language, type Language };
+export const SETTINGS_STORAGE_KEY = PREFERENCES_STORAGE_KEY;
 
 const chinese = {
+  ...workflowChinese,
+  "Repository navigation": "仓库导航",
+  "File navigation": "文件导航",
+  "Focus review": "专注审阅",
+  "Focus": "专注",
+  "Exit focus": "退出专注",
+  "{count} files": "{count} 个文件",
+  "Previous change": "上一处改动",
+  "Next change": "下一处改动",
+  "View changes as tree": "树形显示更改",
+  "View changes as list": "平铺显示更改",
+  "Switch to side-by-side diff": "切换为左右对照",
+  "Switch to unified diff": "切换为上下差异",
+  "Scroll files left": "向左滚动文件标签",
+  "Scroll files right": "向右滚动文件标签",
+  "Change {index} of {total}": "第 {index} 处改动，共 {total} 处",
+  "Restore navigation": "恢复导航",
+  "Commit composer": "提交草稿",
+  "Close navigation": "关闭导航",
+  "Close composer": "收起草稿",
   Settings: "设置",
+  Appearance: "外观",
+  System: "跟随系统",
+  Light: "浅色",
+  Dark: "深色",
+  "Theme color": "主题色",
+  Blue: "蓝色",
+  Teal: "青绿色",
+  Green: "绿色",
+  Rose: "玫瑰色",
+  Amber: "琥珀色",
+  "Choose language": "选择语言",
+  "Changes apply immediately.": "修改后立即生效。",
+  "The saved settings are invalid.": "保存的设置无效。",
+  "{count} staged file": "已暂存 {count} 个文件",
+  "{total} repository · {changed} changed": "{total} 个仓库 · {changed} 个有更改",
+  "Working changes": "当前更改",
+  "Back to working changes": "返回当前更改",
+  "View commit": "查看提交",
+  "View commit {id}": "查看提交 {id}",
+  "Copy commit ID": "复制提交编号",
+  "Copy path": "复制路径",
+  "Copy file path": "复制文件路径",
+  "Copy commit message": "复制提交说明",
+  "Could not copy": "复制失败",
+  "Loading commit…": "正在读取提交…",
+  "Could not read commit": "无法读取提交",
+  "Select a commit to review its files and diff.": "选择一条提交，查看文件与差异。",
+  "Changed files · {count}": "变更文件 · {count}",
+  "Commit {id}": "提交 {id}",
+  "Compared with first parent {id}": "与第一父提交 {id} 比较",
+  "Initial commit · compared with empty tree": "首次提交 · 与空树比较",
+  "This commit has no file changes.": "此提交没有文件变更。",
+  "Recent commits · {count}": "最近提交 · {count}",
+  "Search current branch history": "搜索当前分支历史",
+  "Enter at least 7 hexadecimal characters to search by ID.": "输入至少 7 位十六进制提交编号进行搜索。",
+  "Refresh history": "刷新历史",
+  "Search by {field}": "按{field}搜索",
+  Message: "提交说明",
+  Author: "作者",
+  "Commit ID": "提交编号",
+  "Current branch · {count} loaded": "当前分支 · 已加载 {count} 条",
+  "Back to latest": "返回最新提交",
+  "History changed. Refresh to see the latest commits.": "历史已有变化，刷新可查看最新提交。",
+  "Loading history…": "正在读取历史…",
+  "Load older commits": "加载更早提交",
+  "End of this history query": "已到当前查询末尾",
+  "No commits match. Change the search or clear it to browse history.": "没有匹配的提交。请修改搜索内容，或清空后浏览历史。",
+  "Could not save reading state: {error}": "无法保存阅读状态：{error}",
+  "Could not restore reading state: {error}": "无法恢复阅读状态：{error}",
+  "Saved data was left unchanged; reading state is kept in memory for this launch.": "原保存内容未被覆盖；本次阅读状态仅在内存中保留。",
+  "Retry": "重试",
+  "Resize sidebar": "调整侧栏宽度",
+  "Resize review panes": "调整文件列表与审阅区宽度",
+  "Resize library section": "调整仓库库高度",
+  "Resize worktree section": "调整 worktree 区高度",
+  "Resize staged and unstaged files": "调整暂存与未暂存区高度",
+  "Resize commit composer": "调整提交编辑区高度",
+  "Resize commit files and diff": "调整提交文件与差异区高度",
+  "{count} staged files": "已暂存 {count} 个文件",
+  "The saved panel layout is invalid.": "保存的面板布局无效。",
+  "Could not restore panel sizes: {error}": "无法恢复面板尺寸：{error}",
+  "Could not save panel sizes: {error}": "无法保存面板尺寸：{error}",
+
   "Pending refresh": "待刷新",
   "Rescan repositories": "重新扫描仓库",
   "Rescan repositories (⇧⌘R)": "重新扫描仓库（⇧⌘R）",
@@ -31,6 +119,7 @@ const chinese = {
   "Binary file · text preview unavailable": "二进制文件 · 无法显示文本预览",
   "File is larger than the 2 MiB preview limit": "文件超过 2 MiB 预览上限",
   "File preview": "文件预览",
+  "Select a file to preview.": "选择一个文件进行预览。",
   "Read-only": "只读",
   "Associated worktrees": "关联 worktree",
   "Open worktree {path}": "打开 worktree {path}",
@@ -229,36 +318,36 @@ const chinese = {
 };
 
 export type Message = keyof typeof chinese;
+const translations = {
+  ...historyTranslations, ...settingsTranslations, ...menuTranslations, ...fileTranslations,
+  ...gitTranslations, ...importTranslations, ...workspaceTranslations, ...workflowTranslations,
+} satisfies Record<Message, TranslatedMessage>;
 
-export function t(
+export const MESSAGE_KEYS = Object.keys(chinese) as Message[];
+
+export function translate(
+  target: Language,
   message: Message,
   values: Record<string, string | number> = {},
 ): string {
-  const text = languageState() === "zh" ? chinese[message] : message;
+  const text = target === "zh" ? chinese[message] : target === "en" ? message : translations[message][target];
   return text.replace(/\{(\w+)\}/g, (token, name: string) =>
     name in values ? String(values[name]) : token,
   );
 }
 
-export async function restoreLanguage(): Promise<void> {
-  const serialized = await Storage.getItem(SETTINGS_STORAGE_KEY);
-  if (serialized === null) return;
-  const value: unknown = JSON.parse(serialized);
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("language" in value) ||
-    !(value.language === "en" || value.language === "zh")
-  ) {
-    throw new Error(t("The saved language setting is invalid."));
-  }
-  languageState.set(value.language);
+export function t(message: Message, values: Record<string, string | number> = {}): string {
+  return translate(language(), message, values);
 }
 
-export async function setLanguage(next: Language): Promise<void> {
-  languageState.set(next);
-  await Storage.setItem(
-    SETTINGS_STORAGE_KEY,
-    JSON.stringify({ language: next }),
-  );
+export async function restoreLanguage(): Promise<void> {
+  try { await restorePreferences(); }
+  catch (cause) {
+    if (cause instanceof InvalidPreferencesError) throw new Error(t("The saved settings are invalid."));
+    throw cause;
+  }
+}
+
+export function setLanguage(next: Language): Promise<void> {
+  return updatePreferences({ language: next });
 }

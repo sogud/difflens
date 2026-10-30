@@ -1,8 +1,15 @@
+import { Hint, HintTarget } from "./Hint";
+import { Menu as DesktopMenu } from "nsh/desktop";
+import { copyText } from "../context-menu";
 import { t } from "../i18n";
 import { Icon } from "./Icon";
+import { IconButton } from "./IconButton";
+import { accentClasses } from "../appearance";
+import { panelGripClass, panelHandleClass, PANEL_LIMITS, type PanelSizes, type ResizePanel } from "../panel-layout";
 import { WorktreeList } from "./WorktreeList";
-import { computed, effect, Input, Scroll, signal, Text, View } from "nsh";
-import { Button, Menu, MenuItem, MenuSeparator, Tab, Tabs } from "nsh/base";
+import { computed, effect, Scroll, signal, Text, View } from "nsh";
+import { Input } from "nsh/base";
+import { Button, Menu, MenuItem, MenuSeparator, ResizablePanel, ResizablePanelGroup, Tab, Tabs } from "nsh/base";
 import type { RepositoryNode, WorktreeInfo } from "difflens/native";
 import {
   folderName,
@@ -11,6 +18,16 @@ import {
   type SourceKind,
 } from "../library";
 import type { RepositoryTreeProps } from "../ui-types";
+
+function ViewModeTab(props: { mode: "nested" | "flat"; selected: boolean; onPress: () => void }) {
+  const label = () => props.mode === "nested" ? t("Nested") : t("Flat");
+  return <HintTarget class="h-6 w-7" text={label()}>
+    <Tab testID={"view-" + props.mode} selected={props.selected} accessibilityLabel={label()} onPress={props.onPress}
+      class="h-6 w-7 items-center justify-center rounded selected:bg-background active:opacity-70">
+      <Icon name={props.mode} muted={!props.selected} />
+    </Tab>
+  </HintTarget>;
+}
 
 function flattenRepositories(repositories: RepositoryNode[]): RepositoryNode[] {
   const result: RepositoryNode[] = [];
@@ -50,6 +67,8 @@ function RepositoryRow(props: {
   disabled: boolean;
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
+  onReveal: (path: string) => void;
+  onTools: (path: string) => void;
 }) {
   const collapsed = computed(
     () => !props.searching && props.collapsed.includes(props.repository.path),
@@ -71,31 +90,30 @@ function RepositoryRow(props: {
       <View
         class="flex-row items-center"
         style={{ paddingLeft: props.depth * 12 }}
+        onContextMenu={(event) => { void DesktopMenu.popup([
+          { label: t("Open repository {path}", { path: props.repository.name }), disabled: props.disabled, onSelect: () => props.onSelect(props.repository.path) },
+          { label: t("Git actions"), disabled: props.disabled, onSelect: () => props.onTools(props.repository.path) },
+          { label: t("Open in file manager"), onSelect: () => props.onReveal(props.repository.path) },
+          { label: t("Copy path"), onSelect: () => copyText(props.repository.path) },
+          ...(hasChildren() ? [{ label: t(collapsed() ? "Expand {name}" : "Collapse {name}", { name: props.repository.name }), disabled: props.disabled, onSelect: () => props.onToggle(props.repository.path) }] : []),
+        ], event.pagePosition); }}
       >
         {hasChildren() ? (
-          <Button
-            disabled={props.disabled}
-            accessibilityLabel={t(
-              collapsed() ? "Expand {name}" : "Collapse {name}",
-              { name: props.repository.name },
-            )}
-            onPress={() => props.onToggle(props.repository.path)}
-            class="w-5 items-center justify-center rounded py-1.5 active:bg-muted"
-          >
-            <Icon name={collapsed() ? "chevronRight" : "chevronDown"} size={13} muted />
-          </Button>
+          <IconButton icon={collapsed() ? "chevronRight" : "chevronDown"} compact disabled={props.disabled}
+            label={t(collapsed() ? "Expand {name}" : "Collapse {name}", { name: props.repository.name })}
+            onPress={() => props.onToggle(props.repository.path)} />
         ) : (
-          <View class="w-5" />
+          <View class="w-6" />
         )}
+        <View class="min-w-0 flex-1" tooltip={<Hint text={props.repository.path} />}>
         <Button
           selected={props.selectedPath === props.repository.path}
           disabled={props.disabled}
           accessibilityLabel={t("Select repository {name}", {
             name: props.repository.name,
           })}
-          tooltip={props.repository.path}
           onPress={() => props.onSelect(props.repository.path)}
-          class="min-w-0 flex-1 rounded px-2 py-1 text-left active:bg-muted selected:bg-accent"
+          class="h-10 min-w-0 justify-center rounded px-2 text-left hover:bg-muted/70 active:bg-muted selected:bg-accent"
         >
           <View class="flex-row items-center gap-1.5">
             <View class="min-w-0 flex-1 gap-0.5">
@@ -124,6 +142,7 @@ function RepositoryRow(props: {
             </Text>
           </View>
         </Button>
+        </View>
       </View>
       {hasChildren() && !collapsed()
         ? props.repository.children.map((repository) => (
@@ -140,8 +159,12 @@ function RepositoryRow(props: {
 
 export function RepositoryPane(
   props: RepositoryTreeProps & {
+    panelSizes: PanelSizes;
+    onPanelResize: ResizePanel;
     worktrees: WorktreeInfo[];
     onOpenWorktree: (path: string) => void;
+    onTools: (path: string) => void;
+    onSetup: (clone: boolean) => void;
     sources: LibrarySource[];
     activeKey: string | null;
     activeSource: LibrarySource | undefined;
@@ -154,6 +177,7 @@ export function RepositoryPane(
 ) {
   const search = signal("");
   const collapsed = signal<string[]>([]);
+  const worktreesExpanded = signal(true);
   let previousSource = props.activeKey;
   effect(() => {
     const currentSource = props.activeKey;
@@ -185,7 +209,11 @@ export function RepositoryPane(
   }
 
   return (
-    <View class="min-h-0 flex-1 flex-col border-r border-border">
+    <View class="min-h-0 flex-1 flex-col bg-chrome">
+      <ResizablePanelGroup axis="vertical" class="min-h-0 flex-1" handleClass={panelHandleClass()} handleThumbClass={panelGripClass()}
+        handleAccessibilityLabel={t("Resize library section")}>
+      <ResizablePanel fixed size={props.panelSizes.library} minSize={PANEL_LIMITS.library.min} maxSize={PANEL_LIMITS.library.max}
+        onResize={(size) => props.onPanelResize("library", size)} class="min-h-0">
       <View class="flex-row items-center justify-between px-2 pt-2 pb-2">
         <Text class="text-[11px] font-semibold text-muted-foreground">
           {t("LIBRARY")}
@@ -194,16 +222,16 @@ export function RepositoryPane(
           popupClass="min-w-52 rounded-md border border-border bg-popover p-1"
           offset={4}
           trigger={
-            <View
+            <HintTarget
+              text={t("Add to library")}
               disabled={props.disabled}
               role="button"
               focusable
               accessibilityLabel={t("Add to library")}
-              tooltip={t("Add to library")}
               class="size-6 items-center justify-center rounded hover:bg-muted active:bg-muted disabled:opacity-40"
             >
               <Icon name="plus" />
-            </View>
+            </HintTarget>
           }
         >
           <MenuItem
@@ -224,6 +252,8 @@ export function RepositoryPane(
               {t("Workspace directory…")}
             </Text>
           </MenuItem>
+          <MenuItem disabled={props.disabled} onSelect={() => props.onSetup(true)} class="h-7 justify-center rounded px-2 hover:bg-accent"><Text class="text-[12px] text-foreground">{t("Clone repository…")}</Text></MenuItem>
+          <MenuItem disabled={props.disabled} onSelect={() => props.onSetup(false)} class="h-7 justify-center rounded px-2 hover:bg-accent"><Text class="text-[12px] text-foreground">{t("Create repository…")}</Text></MenuItem>
           <MenuSeparator class="my-1 h-px bg-border" />
           <MenuItem
             class="rounded px-2 py-1 active:bg-accent"
@@ -236,7 +266,7 @@ export function RepositoryPane(
           </MenuItem>
         </Menu>
       </View>
-      <Scroll style={{ maxHeight: 156 }}>
+      <Scroll class="min-h-0 flex-1">
         <View class="gap-1 px-2 pb-2">
           {props.sources.length === 0 ? (
             <Text class="px-2 py-1.5 text-[11px] text-muted-foreground">
@@ -244,7 +274,14 @@ export function RepositoryPane(
             </Text>
           ) : (
             props.sources.map((source) => (
-              <View class="flex-row items-center gap-1">
+              <View class="flex-row items-center gap-1" onContextMenu={(event) => { void DesktopMenu.popup([
+                { label: t("Open / Refresh"), disabled: props.disabled, onSelect: () => props.onOpenSource(source) },
+                { label: t("Open in file manager"), onSelect: () => props.onRevealSource(source.path) },
+                { label: t("Copy path"), onSelect: () => copyText(source.path) },
+                { type: "separator" },
+                { label: t("Remove from library"), disabled: props.disabled, onSelect: () => props.onRemoveSource(sourceKey(source)) },
+              ], event.pagePosition); }}>
+                <View class="min-w-0 flex-1" tooltip={<Hint text={source.path} />}>
                 <Button
                   selected={props.activeKey === sourceKey(source)}
                   disabled={props.disabled}
@@ -254,9 +291,8 @@ export function RepositoryPane(
                       : "Open repository {path}",
                     { path: source.path },
                   )}
-                  tooltip={source.path}
                   onPress={() => props.onOpenSource(source)}
-                  class="min-w-0 flex-1 gap-0.5 rounded px-2 py-1 text-left active:bg-muted selected:bg-accent"
+                  class="h-11 min-w-0 justify-center gap-0.5 rounded px-2 text-left hover:bg-muted/70 active:bg-muted selected:bg-accent"
                 >
                   <Text
                     numberOfLines={1}
@@ -274,21 +310,23 @@ export function RepositoryPane(
                     {source.path}
                   </Text>
                 </Button>
+                </View>
                 <Menu
                   popupClass="min-w-48 rounded-md border border-border bg-popover p-1"
                   offset={4}
                   trigger={
-                    <View
+                    <HintTarget
+                      text={t("Manage {path}", { path: source.path })}
                       disabled={props.disabled}
                       role="button"
                       focusable
                       accessibilityLabel={t("Manage {path}", {
                         path: source.path,
                       })}
-                      class="rounded px-2 py-1.5 active:bg-muted disabled:opacity-40"
+                      class="size-6 items-center justify-center rounded hover:bg-muted active:bg-muted disabled:opacity-35"
                     >
                       <Icon name="more" muted />
-                    </View>
+                    </HintTarget>
                   }
                 >
                   <MenuItem
@@ -325,7 +363,12 @@ export function RepositoryPane(
           )}
         </View>
       </Scroll>
-      <View class="gap-2 border-y border-border p-2">
+      </ResizablePanel>
+      <ResizablePanel minSize={180} class="min-h-0">
+      <ResizablePanelGroup axis="vertical" class="min-h-0 flex-1" handleClass={panelHandleClass()} handleThumbClass={panelGripClass()}
+        handleAccessibilityLabel={t("Resize worktree section")}>
+      <ResizablePanel minSize={100} class="min-h-0">
+      <View class="gap-2 p-2">
         <View class="flex-row items-center gap-1.5">
           <Text
             numberOfLines={1}
@@ -347,25 +390,15 @@ export function RepositoryPane(
             disabled={props.disabled}
             placeholder={t("Filter…")}
             accessibilityLabel={t("Filter repositories")}
-            class="h-7 min-w-0 flex-1 rounded border border-input bg-background px-2 text-[12px] text-foreground"
+            class={"h-7 min-w-0 flex-1 rounded border border-transparent bg-subtle-input px-2 text-[12px] text-foreground focus:bg-background " + accentClasses().focus}
           />
           <Tabs class="flex-row gap-0.5 rounded bg-muted p-0.5">
-            {(["nested", "flat"] satisfies ("nested" | "flat")[]).map((mode) => (
-              <Tab
-                testID={"view-" + mode}
-                selected={props.mode === mode}
-                accessibilityLabel={mode === "nested" ? t("Nested") : t("Flat")}
-                tooltip={mode === "nested" ? t("Nested") : t("Flat")}
-                onPress={() => props.onModeChange(mode)}
-                class="h-6 w-7 items-center justify-center rounded selected:bg-background active:opacity-70"
-              >
-                <Icon name={mode} muted={props.mode !== mode} />
-              </Tab>
-            ))}
+            <ViewModeTab mode="nested" selected={props.mode === "nested"} onPress={() => props.onModeChange("nested")} />
+            <ViewModeTab mode="flat" selected={props.mode === "flat"} onPress={() => props.onModeChange("flat")} />
           </Tabs>
         </View>
       </View>
-      <Scroll style={{ flex: 1 }}>
+      <Scroll class="min-h-0 flex-1">
         <View class="gap-0.5 px-1 py-1">
           {visibleRepositories().length === 0 ? (
             <Text class="px-2 py-2 text-[12px] text-muted-foreground">
@@ -384,16 +417,27 @@ export function RepositoryPane(
                 selectedPath={props.selectedPath}
                 disabled={props.disabled}
                 onSelect={props.onSelect}
-                onToggle={toggle}
+                onToggle={toggle} onReveal={props.onRevealSource} onTools={props.onTools}
               />
             ))
           )}
         </View>
       </Scroll>
-      {props.worktrees.length > 0 ? <WorktreeList worktrees={props.worktrees} disabled={props.disabled} onOpen={props.onOpenWorktree} /> : null}
+      </ResizablePanel>
+      <ResizablePanel visible={props.worktrees.length > 0} fixed
+        size={worktreesExpanded() ? props.panelSizes.worktrees : 32}
+        minSize={worktreesExpanded() ? PANEL_LIMITS.worktrees.min : 32}
+        maxSize={worktreesExpanded() ? PANEL_LIMITS.worktrees.max : 32}
+        onResize={(size) => { if (worktreesExpanded()) props.onPanelResize("worktrees", size); }} class="min-h-0">
+        <WorktreeList worktrees={props.worktrees} disabled={props.disabled} onOpen={props.onOpenWorktree}
+          expanded={worktreesExpanded()} onExpandedChange={(value) => worktreesExpanded.set(value)} />
+      </ResizablePanel>
+      </ResizablePanelGroup>
+      </ResizablePanel>
+      </ResizablePanelGroup>
       {props.warnings > 0 ? (
         <View class="border-t border-border px-2 py-1">
-          <Text class="text-[11px] text-amber-700 dark:text-amber-400">
+          <Text class="text-[11px] text-warning">
             {t("{count} folders could not be read", { count: props.warnings })}
           </Text>
         </View>

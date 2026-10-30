@@ -1,10 +1,15 @@
-use nsh_core::ui::prelude::*;
+use nsh_core::prelude::*;
 use std::path::PathBuf;
 
 mod code_diff;
 pub mod diagnostics;
 mod files;
 mod git;
+mod history;
+mod operations;
+pub use operations::{
+    GitContext, GitOperationOutcome, GitOperationPlan, GitOperationRequest, GitReference, GitStash,
+};
 mod repository_cache;
 mod scan_jobs;
 mod scan_rules;
@@ -28,6 +33,77 @@ pub struct Workspace;
 
 #[module]
 impl Workspace {
+    /// Creates a new repository or clones into a new directory after an explicit UI request.
+    pub async fn setup_repository(
+        parent_path: String,
+        name: String,
+        url: String,
+        clone: bool,
+    ) -> Result<WorkspaceScan, String> {
+        background("workspace.setup_repository", move || {
+            let parent = std::fs::canonicalize(parent_path).map_err(|e| e.to_string())?;
+            if !parent.is_dir() || name.is_empty() || name.trim() != name || name.starts_with('-') || std::path::Path::new(&name).components().any(|part| !matches!(part, std::path::Component::Normal(_))) || std::path::Path::new(&name).components().count() != 1 {
+                return Err("Choose an existing parent folder and a single new directory name.".into());
+            }
+            let destination = parent.join(&name);
+            if destination.exists() { return Err("The destination already exists. Choose a new directory name.".into()); }
+            if clone {
+                let url = url.trim();
+                let ordinary_url = ["https://", "http://", "ssh://", "git://", "file://"].iter().any(|prefix| url.starts_with(prefix));
+                if url.is_empty() || url.starts_with('-') || (url.contains("::") && !ordinary_url) || url.contains(['\n', '\r', '\0']) {
+                    return Err("Enter a Git URL or a local repository path; remote helper commands are not accepted.".into());
+                }
+                std::fs::create_dir(&destination).map_err(|e| format!("Cannot reserve the new directory: {e}"))?;
+                git::run_git(&parent, &["clone", "--", url, destination.to_str().ok_or("The destination is not valid UTF-8.")?])?;
+            } else {
+                std::fs::create_dir(&destination).map_err(|e| format!("Cannot reserve the new directory: {e}"))?;
+                git::run_git(&parent, &["init", "--initial-branch=main", "--", destination.to_str().ok_or("The destination is not valid UTF-8.")?])?;
+            }
+            git::open_repository(destination)
+        }).await
+    }
+
+    /// Opens a contained working file in the system editor, including conflict resolution files.
+    pub async fn open_working_file(
+        repository_path: String,
+        file_path: String,
+    ) -> Result<(), String> {
+        background("files.open_editor", move || {
+            operations::open_file(PathBuf::from(repository_path), file_path)
+        })
+        .await
+    }
+
+    /// Reads local/remote references, stashes and resumable Git state without changing it.
+    pub async fn git_context(repository_path: String) -> Result<GitContext, String> {
+        background("workspace.git_context", move || {
+            operations::context(PathBuf::from(repository_path))
+        })
+        .await
+    }
+
+    /// Validates a requested operation and captures the exact HEAD/target for confirmation.
+    pub async fn prepare_operation(
+        repository_path: String,
+        request: GitOperationRequest,
+    ) -> Result<GitOperationPlan, String> {
+        background("workspace.prepare_operation", move || {
+            operations::prepare(PathBuf::from(repository_path), request)
+        })
+        .await
+    }
+
+    /// Revalidates a confirmed plan, then reports completed/paused/failed with fresh data.
+    pub async fn execute_operation(
+        repository_path: String,
+        plan: GitOperationPlan,
+    ) -> Result<GitOperationOutcome, String> {
+        background("workspace.execute_operation", move || {
+            operations::execute(PathBuf::from(repository_path), plan)
+        })
+        .await
+    }
+
     /// Opens the system folder picker; cancellation leaves the library unchanged.
     pub async fn choose_folder(title: String) -> Result<Option<String>, String> {
         let folder = rfd::AsyncFileDialog::new()
@@ -145,6 +221,49 @@ impl Workspace {
     ) -> Result<String, String> {
         background("workspace.diff_file", move || {
             git::diff_file(PathBuf::from(repository_path), file_path, staged)
+        })
+        .await
+    }
+
+    /// Reads one bounded page from a fixed commit snapshot, without checking out commits.
+    pub async fn history_page(
+        repository_path: String,
+        query: String,
+        search_field: String,
+        anchor: Option<String>,
+        offset: u32,
+    ) -> Result<HistoryPage, String> {
+        background("history.page", move || {
+            history::history_page(
+                PathBuf::from(repository_path),
+                query,
+                search_field,
+                anchor,
+                offset,
+            )
+        })
+        .await
+    }
+
+    /// Reads a commit and its changed files without touching the worktree or index.
+    pub async fn inspect_commit(
+        repository_path: String,
+        commit_id: String,
+    ) -> Result<CommitDetails, String> {
+        background("history.inspect_commit", move || {
+            history::inspect_commit(PathBuf::from(repository_path), commit_id)
+        })
+        .await
+    }
+
+    /// Reads a committed file against the first parent, or the empty tree for a root commit.
+    pub async fn commit_diff(
+        repository_path: String,
+        commit_id: String,
+        file_path: String,
+    ) -> Result<String, String> {
+        background("history.commit_diff", move || {
+            history::commit_diff(PathBuf::from(repository_path), commit_id, file_path)
         })
         .await
     }
@@ -360,6 +479,36 @@ pub struct CommitSummary {
     pub subject: String,
     pub author: String,
     pub authored_at: String,
+}
+
+/// A bounded page in an immutable history query; current_tip_id detects newer history.
+#[derive(Clone, Debug, JsObject)]
+pub struct HistoryPage {
+    pub commits: Vec<CommitSummary>,
+    pub tip_id: Option<String>,
+    pub current_tip_id: Option<String>,
+    pub offset: u32,
+    pub next_offset: Option<u32>,
+    pub page_size: u32,
+}
+
+/// Immutable commit context, independent of the current worktree and index.
+#[derive(Clone, Debug, JsObject)]
+pub struct CommitDetails {
+    pub id: String,
+    pub short_id: String,
+    pub author: String,
+    pub authored_at: String,
+    pub message: String,
+    pub parent_ids: Vec<String>,
+    pub files: Vec<CommitFile>,
+}
+
+#[derive(Clone, Debug, JsObject)]
+pub struct CommitFile {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub status: String,
 }
 
 /// A directory the scanner could not read.

@@ -17,12 +17,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
 libc = "0.2"
-nsh-core = { git = "https://github.com/longbridge/nsh.git", rev = "5757911cf23d5a800fa1a353152bdbeeb5057d84" }
-nsh-base = { git = "https://github.com/longbridge/nsh.git", rev = "5757911cf23d5a800fa1a353152bdbeeb5057d84" }
+nsh-core = "=0.3.0"
+nsh-base = "=0.3.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nsh-macos-app = { git = "https://github.com/longbridge/nsh.git", rev = "5757911cf23d5a800fa1a353152bdbeeb5057d84" }
-nsh-platform-macos = { git = "https://github.com/longbridge/nsh.git", rev = "5757911cf23d5a800fa1a353152bdbeeb5057d84" }
+nsh-macos-app = "=0.3.0"
+nsh-platform-macos = "=0.3.0"
 
 [profile.release]
 debug = 1

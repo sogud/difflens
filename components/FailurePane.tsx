@@ -3,6 +3,7 @@ import { Button } from "nsh/base";
 import { Diagnostics } from "difflens/native";
 import { errorMessage } from "../diagnostics";
 import { t } from "../i18n";
+import { accentClasses } from "../appearance";
 
 /** Keeps an unexpected UI error visible and records its stack for diagnosis. */
 export function FailurePane(props: { error: unknown; reset: () => void }) {
@@ -23,12 +24,12 @@ export function FailurePane(props: { error: unknown; reset: () => void }) {
         <Text class="text-[11px] text-destructive">{errorMessage(props.error)}</Text>
         {failure() ? <Text class="text-[11px] text-destructive">{failure()}</Text> : null}
         <View class="flex-row gap-2">
-          <Button testID="retry-app" onPress={props.reset} class="rounded bg-primary px-3 py-1">
-            <Text class="text-[12px] text-primary-foreground">{t("Reload interface")}</Text>
+          <Button testID="retry-app" onPress={props.reset} class={"h-7 justify-center rounded px-3 " + accentClasses().fill}>
+            <Text class={"text-[12px] " + accentClasses().foreground}>{t("Reload interface")}</Text>
           </Button>
           <Button testID="failure-open-logs" onPress={() => {
             void Diagnostics.openLogs().catch((cause: unknown) => failure.set(errorMessage(cause)));
-          }} class="rounded border border-border px-3 py-1">
+          }} class="rounded px-3 py-1 hover:bg-muted active:bg-accent">
             <Text class="text-[12px] text-foreground">{t("Open logs")}</Text>
           </Button>
         </View>

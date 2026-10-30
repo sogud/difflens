@@ -1,5 +1,7 @@
 import { t } from "../i18n";
-import { Input, signal, Text, View } from "nsh";
+import { accentClasses } from "../appearance";
+import { signal, Text, View } from "nsh";
+import { Input } from "nsh/base";
 import { Button, Dialog, Tab, Tabs } from "nsh/base";
 import { Workspace } from "difflens/native";
 import type { SourceKind } from "../library";
@@ -113,14 +115,14 @@ export function AddSourceDialog(props: {
               disabled={busy()}
               accessibilityLabel={t("Folder path")}
               placeholder={t("Paste a folder path or browse…")}
-              class="h-7 min-w-0 flex-1 rounded border border-input bg-background px-2 text-[12px] text-foreground"
+              class={"h-7 min-w-0 flex-1 rounded border border-transparent bg-subtle-input px-2 text-[12px] text-foreground focus:bg-background " + accentClasses().focus}
             />
             <Button
               disabled={busy()}
               onPress={() => {
                 void browse();
               }}
-              class="rounded border border-border px-2 py-1 active:bg-muted disabled:opacity-40"
+              class="rounded px-2 py-1 hover:bg-muted active:bg-accent disabled:opacity-35"
             >
               <Text class="text-[12px] text-foreground">{t("Browse…")}</Text>
             </Button>
@@ -154,9 +156,9 @@ export function AddSourceDialog(props: {
           <Button
             disabled={busy()}
             onPress={props.onCancel}
-            class="rounded border border-border px-2 py-1 active:bg-muted disabled:opacity-40"
+            class="rounded px-2 py-1 hover:bg-muted active:bg-accent disabled:opacity-35"
           >
-            <Text class="text-[12px] text-foreground">{t("Cancel")}</Text>
+            <Text class="text-[12px] text-muted-foreground">{t("Cancel")}</Text>
           </Button>
           <Button
             testID="confirm-add-source"
@@ -164,9 +166,9 @@ export function AddSourceDialog(props: {
             onPress={() => {
               void add();
             }}
-            class="rounded bg-primary px-2 py-1 active:opacity-80 disabled:opacity-40"
+            class={"h-7 items-center justify-center rounded px-2 active:opacity-80 disabled:opacity-40 " + accentClasses().fill}
           >
-            <Text class="text-[12px] font-medium text-primary-foreground">
+            <Text class={"text-[12px] font-medium " + accentClasses().foreground}>
               {busy()
                 ? t("Opening…")
                 : kind() === "repository"

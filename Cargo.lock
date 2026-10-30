@@ -1689,8 +1689,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-base"
-version = "0.2.0"
-source = "git+https://github.com/longbridge/nsh.git?rev=5757911cf23d5a800fa1a353152bdbeeb5057d84#5757911cf23d5a800fa1a353152bdbeeb5057d84"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78d139f86c6d867029ab4cf605bb9e83d6fb08e159b0a747795905d8052c7705"
 dependencies = [
  "html5ever",
  "imara-diff",
@@ -1710,8 +1711,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-core"
-version = "0.2.0"
-source = "git+https://github.com/longbridge/nsh.git?rev=5757911cf23d5a800fa1a353152bdbeeb5057d84#5757911cf23d5a800fa1a353152bdbeeb5057d84"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4153bd66c3fd9ac6cc29b2d2c52b4f267a63b0cc607de568f058dffb1c40574b"
 dependencies = [
  "cap-std",
  "crc32fast",
@@ -1738,8 +1740,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-engine"
-version = "0.2.0"
-source = "git+https://github.com/longbridge/nsh.git?rev=5757911cf23d5a800fa1a353152bdbeeb5057d84#5757911cf23d5a800fa1a353152bdbeeb5057d84"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98db98fb40acf6ed8e32d2dc5b232022731614df4bc6d0576996a4ef9590ea12"
 dependencies = [
  "crossbeam-channel",
  "libc",
@@ -1756,8 +1759,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-js"
-version = "0.2.0"
-source = "git+https://github.com/longbridge/nsh.git?rev=5757911cf23d5a800fa1a353152bdbeeb5057d84#5757911cf23d5a800fa1a353152bdbeeb5057d84"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e4e431dbc6456b1c2d077cab4a2a6a466928cbfbb5799d23f6c8a74aa219d13"
 dependencies = [
  "futures-util",
  "getrandom 0.4.3",
@@ -1777,8 +1781,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-macos-app"
-version = "0.2.0"
-source = "git+https://github.com/longbridge/nsh.git?rev=5757911cf23d5a800fa1a353152bdbeeb5057d84#5757911cf23d5a800fa1a353152bdbeeb5057d84"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cdc70b353082f144ba33cbad1f526999cc2e1b09b01a29252601c105d340f10"
 dependencies = [
  "log",
  "nsh-platform-macos",
@@ -1787,8 +1792,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-macros"
-version = "0.2.0"
-source = "git+https://github.com/longbridge/nsh.git?rev=5757911cf23d5a800fa1a353152bdbeeb5057d84#5757911cf23d5a800fa1a353152bdbeeb5057d84"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7890ededc9e886f1bf9de82231285ccbb924239f39bf5fb2ffc0b53438dcfc0"
 dependencies = [
  "imagesize 0.15.0",
  "proc-macro2",
@@ -1799,8 +1805,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-package"
-version = "0.2.0"
-source = "git+https://github.com/longbridge/nsh.git?rev=5757911cf23d5a800fa1a353152bdbeeb5057d84#5757911cf23d5a800fa1a353152bdbeeb5057d84"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1869e1de69fc5e16e0b84db52d92e9daa428d2b2d0fa9367cc9ba56f07f68fae"
 dependencies = [
  "base64",
  "ed25519-dalek 2.2.0",
@@ -1814,8 +1821,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-platform-macos"
-version = "0.2.0"
-source = "git+https://github.com/longbridge/nsh.git?rev=5757911cf23d5a800fa1a353152bdbeeb5057d84#5757911cf23d5a800fa1a353152bdbeeb5057d84"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5d8c32b2c6ca9c4661571287bbc19afa027155b2cc8a99cafdbe3f6b9e387bd"
 dependencies = [
  "block2",
  "crossbeam-channel",
