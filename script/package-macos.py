@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import plistlib
 import shutil
+import shlex
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -60,6 +62,20 @@ def main():
     config = json.loads((PROJECT / "nsh.json").read_text())
     env = dict(os.environ)
     env.setdefault("RUSTUP_TOOLCHAIN", "stable")
+    mappings = [(str(Path.home()), "/build"), (str(PROJECT), "/build/difflens")]
+    encoded = env.get("CARGO_ENCODED_RUSTFLAGS")
+    rust_flags = encoded.split("\x1f") if encoded else shlex.split(env.get("RUSTFLAGS", ""))
+    rust_flags.extend(f"--remap-path-prefix={source}={target}" for source, target in mappings)
+    env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(rust_flags)
+    for variable in ("CFLAGS", "CXXFLAGS"):
+        flags = shlex.split(env.get(variable, ""))
+        for source, target in mappings:
+            flags.extend((f"-ffile-prefix-map={source}={target}", f"-fdebug-prefix-map={source}={target}"))
+        env[variable] = shlex.join(flags)
+    notices = PROJECT / "THIRD_PARTY_NOTICES.md"
+    lock_hash = hashlib.sha256((PROJECT / "Cargo.lock").read_bytes()).hexdigest()
+    if not notices.is_file() or f"Cargo.lock SHA-256: {lock_hash}" not in notices.read_text():
+        raise RuntimeError("Regenerate dependency notices with python3 script/third-party-notices.py before packaging.")
     metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"], cwd=PROJECT, env=env, text=True))
     package = next(package for package in metadata["packages"] if package["manifest_path"] == str(PROJECT / "Cargo.toml"))
     if package["version"] != config["version"]:
@@ -72,8 +88,24 @@ def main():
     # Keep NSH's bundle, assets and icon; replace only its generated entry point.
     runner = Path(metadata["target_directory"]) / "release/difflens-runner"
     run("dsymutil", runner, "-o", output / f'{config["name"]}.app.dSYM')
-    shutil.copy2(runner, bundle / "Contents/MacOS" / config["name"])
-    shutil.copyfile(PROJECT / "assets/icons/LICENSE", bundle / "Contents/Resources/ThirdPartyNotices.txt")
+    executable = bundle / "Contents/MacOS" / config["name"]
+    shutil.copy2(runner, executable)
+    run("strip", "-S", executable)
+    resources = bundle / "Contents/Resources"
+    shutil.copyfile(notices, resources / "ThirdPartyNotices.txt")
+    shutil.copyfile(PROJECT / "LICENSE", resources / "LICENSE")
+    shutil.copyfile(PROJECT / "NOTICE", resources / "NOTICE")
+    private_prefix = str(Path.home()).encode() + b"/"
+    for path in bundle.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        tail = b""
+        with path.open("rb") as file:
+            while block := file.read(128 * 1024):
+                data = tail + block
+                if private_prefix in data:
+                    raise RuntimeError("The app bundle still contains a local home path; distribution was stopped.")
+                tail = data[-len(private_prefix):]
     run("codesign", "--force", "--sign", "-", "--timestamp=none", bundle)
     run("plutil", "-lint", bundle / "Contents/Info.plist")
     run("codesign", "--verify", "--deep", "--strict", bundle)

@@ -12,11 +12,12 @@ import { accentClasses, applyAppearance } from "./appearance";
 import { createPanelLayout, panelGripClass, panelHandleClass, PANEL_LIMITS } from "./panel-layout";
 import { restoreLanguage, t, type Message } from "./i18n";
 import { cleanup, computed, effect, ErrorBoundary, mount, signal, Storage, Text, untracked, View, setAccessibilityFocus, type YNode } from "nsh";
+import { installUpdate, markUpdateHealthy, startUpdateController, stopUpdateController, updateStatus } from "./update-controller";
 import { loadDiagnostics } from "./diagnostics";
 import { FailurePane } from "./components/FailurePane";
 import { FilePreviewPane } from "./components/FilePreviewPane";
 import { Menu as DesktopMenu, titleBar, Window } from "nsh/desktop";
-import { ResizablePanel, ResizablePanelGroup } from "nsh/base";
+import { Button, ResizablePanel, ResizablePanelGroup } from "nsh/base";
 import {
   Workspace,
   type RepositoryDetails,
@@ -187,16 +188,34 @@ function App() {
   const inventoryComplete = signal(false);
   let activeScan: number | null = null;
   let disposed = false;
+  let rootLaidOut = false;
+  let restorationFinished = false;
+  let startupAcknowledged = false;
   cleanup(() => {
     disposed = true;
+    stopUpdateController();
     if (activeScan !== null) Workspace.stopScan(activeScan);
   });
+  function acknowledgeStartup() {
+    if (startupAcknowledged || !rootLaidOut || !restorationFinished) return;
+    startupAcknowledged = true;
+    markUpdateHealthy();
+  }
   const loading = computed(() => sourceLoad().kind !== "idle");
   const picking = signal(false);
   const sourceError = signal<string | null>(null);
   const storageError = signal<string | null>(null);
   const importForm = signal<ImportForm | null>(null);
   const settingsOpen = signal(false);
+  const settingsSection = signal<"updates" | null>(null);
+  function openSettings() {
+    settingsSection.set(null);
+    settingsOpen.set(true);
+  }
+  function openUpdateSettings() {
+    settingsSection.set("updates");
+    settingsOpen.set(true);
+  }
   const pickerOpen = signal<"repository" | "branch" | null>(null);
   const setupClone = signal<boolean | null>(null);
   const workflowForm = signal<{ root: string; request: GitOperationRequest } | null>(null);
@@ -284,6 +303,7 @@ function App() {
   const repositoryCatalog = new Map<string, SwitcherItem[]>();
   let sessionPersistenceEnabled = true;
   let sessionWrites: Promise<void> = Promise.resolve();
+  let libraryWrites: Promise<void> = Promise.resolve();
   let fileRequest = 0;
   const previewedFile = computed(() => repositoryTab() === "files" ? lastPreviewPath() : null);
   const previewState = () => {
@@ -307,7 +327,8 @@ function App() {
   const gitContext = () => { const state = gitContextState(); return state?.root === selectedPath() ? state.value : null; };
 
   const isScanning = computed(() => loading() || picking() || !libraryReady());
-  const isOperating = computed(() => operationState().kind === "running" || workflowPreparation() !== null);
+  const updateInstallRequested = signal(false);
+  const isOperating = computed(() => updateInstallRequested() || operationState().kind === "running" || workflowPreparation() !== null);
   const loadingMessage = computed(() => {
     if (!libraryReady()) return t("Restoring your library…");
     if (picking()) return t("Choosing folder…");
@@ -344,6 +365,10 @@ function App() {
   });
   watchUiPresentation();
   const uiActivity = computed(currentUiActivity);
+  const updateNotification = computed(() => {
+    const status = updateStatus();
+    return status.phase === "recovered" || (status.supported && (status.phase === "available" || status.phase === "ready")) ? status : null;
+  });
   const activeSource = computed(() =>
     sources().find((source) => sourceKey(source) === activeKey()),
   );
@@ -425,6 +450,26 @@ function App() {
   function commit(expectedRoot = selectedPath()) {
     const root = selectedPath();
     if (root && root === expectedRoot && canCommit()) void performRepositoryAction({ kind: "commit", message: commitMessage().trim() }, root);
+  }
+  async function installPendingUpdate(): Promise<string | null> {
+    if (isOperating() || isScanning() || backgroundScan().kind === "running") {
+      return t("Finish the current Git operation or scan before installing the update.");
+    }
+    updateInstallRequested.set(true);
+    try {
+      rememberCurrentSession();
+      await sessionWrites;
+      if (sessionError() || !sessionPersistenceEnabled) throw new Error(sessionError() ?? "Reading state could not be saved.");
+      await saveLibrary();
+      if (storageError()) throw new Error(storageError()!);
+      await updatePreferences({});
+      await installUpdate();
+      Window.close();
+      return null;
+    } catch (cause) {
+      updateInstallRequested.set(false);
+      return t("Could not install the update: {error}", { error: getErrorMessage(cause) });
+    }
   }
   const counts = computed(() => {
     const current = scanState();
@@ -535,14 +580,14 @@ function App() {
 
   cleanup(() => rememberCurrentSession());
 
-  function saveLibrary() {
-    if (!libraryReady()) return;
+  function saveLibrary(): Promise<void> {
+    if (!libraryReady()) return libraryWrites;
     const snapshot = JSON.stringify({
       sources: sources(),
       activeKey: activeKey(),
       mode: displayMode(),
     });
-    void Storage.setItem(LIBRARY_STORAGE_KEY, snapshot).then(
+    libraryWrites = libraryWrites.then(() => Storage.setItem(LIBRARY_STORAGE_KEY, snapshot)).then(
       () => storageError.set(null),
       (error: unknown) =>
         storageError.set(
@@ -551,6 +596,7 @@ function App() {
           }),
         ),
     );
+    return libraryWrites;
   }
 
   async function loadRepositoryDetails(repositoryPath: string) {
@@ -833,6 +879,7 @@ function App() {
         }),
       );
     }
+    startUpdateController();
     await panelLayout.restore();
     try {
       repositorySessions = readRepositorySessions(await Storage.getItem(SESSION_STORAGE_KEY));
@@ -845,6 +892,8 @@ function App() {
       sources.set(saved.sources);
       displayMode.set(saved.mode);
       libraryReady.set(true);
+      restorationFinished = true;
+      acknowledgeStartup();
       const source = saved.sources.find(
         (entry) => sourceKey(entry) === saved.activeKey,
       );
@@ -853,6 +902,8 @@ function App() {
       sourceError.set(getErrorMessage(error));
     } finally {
       libraryReady.set(true);
+      restorationFinished = true;
+      acknowledgeStartup();
     }
   }
 
@@ -1233,11 +1284,12 @@ function App() {
         label: "DiffLens",
         submenu: [
           { role: "about", label: t("About DiffLens") },
+          { label: t("Check for Updates…"), disabled: importForm() !== null, onSelect: openUpdateSettings },
           {
             label: t("Settings…"),
             shortcut: "mod+,",
             disabled: importForm() !== null,
-            onSelect: () => settingsOpen.set(true),
+            onSelect: openSettings,
           },
           { type: "separator" },
           { role: "hide", label: t("Hide DiffLens") },
@@ -1407,7 +1459,7 @@ function App() {
   </View>;
 
   return (
-    <View class="min-h-0 flex-1 flex-col bg-chrome text-foreground">
+    <View class="min-h-0 flex-1 flex-col bg-chrome text-foreground" onLayout={() => { rootLaidOut = true; acknowledgeStartup(); }}>
       <View class="bg-chrome">
         <View
           testID="window-toolbar"
@@ -1451,6 +1503,16 @@ function App() {
               </View> : null;
             })()}
           </View>
+          {(() => {
+            const update = updateNotification();
+            if (!update) return null;
+            const label = update.phase === "recovered" ? t("Updates") : update.phase === "ready" ? t("Update ready") : t("Update available");
+            return <Button testID="update-notification" accessibilityLabel={label} onPress={openUpdateSettings}
+              class="h-6 shrink-0 flex-row items-center gap-1 rounded px-1.5 hover:bg-accent active:bg-accent">
+              <Icon name="fetch" size={12} />
+              <Text numberOfLines={1} class="text-[11px] text-foreground">{label}</Text>
+            </Button>;
+          })()}
           {currentDetails() ? <Text class="pr-2 text-[10px] text-muted-foreground">{t("{count} files", { count: currentDetails()!.changes.length })}</Text> : null}
           <IconButton icon="pull" hint={pullHint()} label={t("Pull")} compact disabled={isScanning() || isOperating() || !currentDetails()?.hasUpstream}
             onPress={() => { const root = selectedPath(); if (root) void performRepositoryAction({ kind: "pull" }, root); }} />
@@ -1464,7 +1526,7 @@ function App() {
               { type: "separator" },
               { label: t("Manage repositories…"), onSelect: () => presentation.set({ kind: "review", auxiliary: "repositories" }) },
               { label: t("Clone repository…"), onSelect: () => setupClone.set(true) },
-              { label: t("Settings"), onSelect: () => settingsOpen.set(true) },
+              { label: t("Settings"), onSelect: openSettings },
             ]); }} />
         </View>
         {(() => { const notice = scanNotice(); return notice ? <Text class="px-3 pb-2 text-[11px] text-muted-foreground">{t(notice)}</Text> : null; })()}
@@ -1492,7 +1554,7 @@ function App() {
           <IconButton ref={node => { gitOpener = node; }} icon="worktree" testID="open-git-tools" label={t("Branches and Stash")} hint={gitToolsHint()} selected={gitNavigationVisible()} disabled={!currentDetails() || isScanning() || isOperating()}
             onPress={() => toggleNavigation("git")} />
           <View class="min-h-0 flex-1" />
-          <IconButton icon="settings" testID="open-settings" label={t("Settings")} hint={t("Settings (⌘,)")} onPress={() => settingsOpen.set(true)} />
+          <IconButton icon="settings" testID="open-settings" label={t("Settings")} hint={t("Settings (⌘,)")} onPress={openSettings} />
         </View>
         <View class="min-h-0 min-w-0 flex-1">
           {(() => {
@@ -1617,8 +1679,11 @@ function App() {
       {settingsOpen() ? (
         <SettingsDialog
           error={settingsError()}
+          section={settingsSection()}
           onSaved={() => settingsError.set(null)}
-          onClose={() => settingsOpen.set(false)}
+          installing={updateInstallRequested()}
+          onInstallUpdate={installPendingUpdate}
+          onClose={() => { settingsOpen.set(false); settingsSection.set(null); }}
         />
       ) : null}
     </View>

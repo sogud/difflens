@@ -90,7 +90,7 @@ DiffPane and FilePreviewPane keep one native editor instance after first use. Pe
 
 `RetainedPane` mounts a tab on first use and changes visibility without recreating its native list/editor. App retains independent working-diff, file-preview and commit-review panes, with file content scoped to the selected worktree. Tab changes do not inspect the repository or reread a ready preview. Explicit refreshes and Git mutations advance repositoryRevision, invalidating directory/history data. Hidden history cannot auto-select a commit or replace its reading anchor.
 
-`script/verify-tab-navigation.py` traces fixture-only Git argv and checks loading states, expanded folders/search, refreshes and staging. Six warm switches previously issued48 Git commands; the retained implementation issues none. Native/headless scenarios verify worktree/index/HEAD and file bytes.
+`script/verify-tab-navigation.py` traces fixture-only Git argv and checks loading states, expanded folders/search, refreshes and staging. Native/headless scenarios compare worktree/index/HEAD and file bytes.
 
 ## Verification fixtures
 
@@ -104,7 +104,7 @@ Rust integration tests create repositories under a unique operating-system tempo
 
 ## Local installation and diagnostics
 
-`script/package-macos.py` uses NSH's official macOS packager, replaces the generated runner with `src/main.rs`, emits matching debug symbols, then signs the bundle ad hoc. The runner initializes `src/diagnostics.rs` before NSH loads. It records runtime events, panics and session exit state; the `Diagnostics` native module exposes local paths to Settings. `App.tsx` uses NSH's ErrorBoundary with `FailurePane` for UI errors. No reports are uploaded; update checks are deferred.
+`script/package-macos.py` uses NSH's official macOS packager, replaces the generated runner with `src/main.rs`, remaps build paths, retains private debug symbols, strips the distributed executable and signs the bundle ad hoc. Project and dependency licenses are copied into Resources. The runner initializes `src/diagnostics.rs` before NSH loads. It records runtime events, panics and session exit state; the `Diagnostics` native module exposes local paths to Settings. `App.tsx` uses NSH's ErrorBoundary with `FailurePane` for UI errors. Diagnostic reports are not uploaded. Signed application updates are described in [updates](updates.md).
 
 Discovery uses a bounded parallel walker without Git-ignore filtering, pruning generated dependency/build trees and recognizing `.git` entries without a separate marker lookup per folder. It then inspects repositories with at most four workers and assembles the original nested tree in sorted order. Discovery and status phases have separate diagnostic events. The compact toolbar uses `Window.setTitleBar("hidden", 40)`, the `titleBar()` insets and `desktop.windowDrag`; AppKit retains the window buttons.
 

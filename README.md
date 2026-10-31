@@ -2,17 +2,13 @@
 
 A compact desktop Git client for reviewing code changes across nested repositories. Built with Native Shell, it shows each repository's branch and working-tree status independently.
 
-See [architecture](docs/architecture.md) for module boundaries and data contracts.
+See [design boundaries](docs/design.md), [architecture](docs/architecture.md) and [contributing](CONTRIBUTING.md).
 
 ## Download
 
-The first preview is [v0.1.0, build 18](https://github.com/sogud/difflens/releases/tag/v0.1.0), for **Apple Silicon Macs running macOS 14 or later**. Download `DiffLens-0.1.0-macos-arm64.zip`, quit any running copy, extract it and move `DiffLens.app` into Applications. Git must be available on PATH.
+The current Beta is [v0.1.1-beta.1, build 19](https://github.com/sogud/difflens/releases/tag/v0.1.1-beta.1), for **Apple Silicon Macs running macOS 14 or later**. Download `DiffLens-0.1.1-beta.1-macos-arm64.zip`, quit any running copy, extract it and move `DiffLens.app` into Applications. Git must be available on PATH.
 
-The app is ad hoc signed and is not notarized; macOS may require approval in **System Settings → Privacy & Security**. Automatic update checks and installation are not implemented. To update, download a newer release and replace the app after quitting it. Repository sources and preferences are stored separately from the app bundle.
-
-## Name and domain
-
-The product name is **DiffLens**. Cloudflare search on 2026-10-26 showed difflens.dev at $8.20 for the first year and $12.20 per year on renewal; difflens.app was $8.20 for the first year and $14.20 per year on renewal. Search availability is not a registration. Neither domain has been purchased; check availability and renewal pricing again before registering.
+The app is ad hoc signed and is not notarized; macOS may require approval in **System Settings → Privacy & Security**. Build 18 needs this first Beta installed manually. The Beta then checks for newer signed releases at startup and every six hours; Settings and **DiffLens → Check for Updates…** offer download and confirmed restart/install. Current private releases require an authenticated GitHub CLI with repository access. App updates preserve repository sources, drafts and preferences. See [Beta updates](docs/updates.md) for authentication, verification, recovery and publishing details.
 
 ## Run
 
@@ -60,9 +56,9 @@ Build and install a local app bundle:
 
 The app is installed at `~/Applications/DiffLens.app`. Once installed, it runs without the NSH CLI or a development server; Git must still be available. Quit DiffLens before reinstalling. Omit `--install` to keep the bundle under `.nsh/out/`.
 
-A matching debug-symbol bundle is saved at `.nsh/out/DiffLens.app.dSYM` for crash symbolication.
+Debug symbols are retained locally for crash symbolication; they are not included in public release attachments.
 
-The GitHub preview uses this ad hoc signed bundle. Automatic updates are not implemented; releases are installed manually as described above.
+The GitHub Beta uses this ad hoc signed bundle. Update manifests are signed separately with Ed25519; installing a checked update waits for the old app to exit and keeps a startup rollback path.
 
 ## Scanning and cache
 
@@ -145,3 +141,7 @@ The import and library workflow can be checked with disposable repositories:
 The macOS check saves light and dark screenshots under `.nsh/verification/`.
 
 The app uses the mixed NSH template: TSX owns the desktop view and Rust owns filesystem discovery and Git status.
+
+## License and security
+
+DiffLens is licensed under [Apache-2.0](LICENSE). Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md) and [NOTICE](NOTICE). The app bundle includes these notices in its Resources folder. To report a vulnerability, follow [SECURITY.md](SECURITY.md).

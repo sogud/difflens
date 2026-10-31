@@ -1,6 +1,6 @@
 # DiffLens project rules
 
-- Follow README.md and docs/architecture.md for product scope and technical boundaries.
+- Follow docs/design.md for current product scope and UI direction.
 - Support nested repository tree and flat repository list views. Every displayed repository gets its own branch, status, and action scope.
 - Keep repository discovery and Git commands in the Rust native module; keep presentation state in the NSH TSX UI.
 - Invoke Git with argument arrays, never a shell. Validate repository roots and changed-file paths at the native-module boundary. Use literal pathspecs for file operations.

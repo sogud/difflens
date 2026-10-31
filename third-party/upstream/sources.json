@@ -1,0 +1,90 @@
+[
+  {
+    "repository": "https://github.com/Nugine/simd",
+    "commit": "d74c030d9dc4f3cae02146d1f497ff62726ef09a",
+    "files": [
+      {
+        "path": "LICENSE",
+        "local": "third-party/upstream/Nugine-simd-d74c030d9dc4-LICENSE",
+        "sha": "2c7eabb59093ea117d73b20effdd0414f87b2af2"
+      }
+    ]
+  },
+  {
+    "repository": "https://github.com/longbridge/rquickjs",
+    "commit": "efea66cc2e8717fd2283346c97aef91be4f1a825",
+    "files": [
+      {
+        "path": "LICENSE",
+        "local": "third-party/upstream/longbridge-rquickjs-efea66cc2e87-LICENSE",
+        "sha": "3aa726b708598dbbf587e7ca2dcd0eff4987bef7"
+      }
+    ]
+  },
+  {
+    "repository": "https://github.com/madsmtm/objc2",
+    "commit": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+    "files": [
+      {
+        "path": "LICENSE.md",
+        "local": "third-party/upstream/madsmtm-objc2-7b1abfd750a2-LICENSE.md",
+        "sha": "540ae4c81adb5f64a9f61e222b688880da24300e"
+      }
+    ]
+  },
+  {
+    "repository": "https://github.com/madsmtm/objc2",
+    "commit": "d7d2fa23ceaa5e6096c923b081040e5d81b3b9df",
+    "files": [
+      {
+        "path": "LICENSE.md",
+        "local": "third-party/upstream/madsmtm-objc2-d7d2fa23ceaa-LICENSE.md",
+        "sha": "540ae4c81adb5f64a9f61e222b688880da24300e"
+      }
+    ]
+  },
+  {
+    "repository": "https://github.com/madsmtm/objc2",
+    "commit": "8d214f5477365ffcbcbb7de058c86ed9a518efb7",
+    "files": [
+      {
+        "path": "LICENSE.md",
+        "local": "third-party/upstream/madsmtm-objc2-8d214f547736-LICENSE.md",
+        "sha": "540ae4c81adb5f64a9f61e222b688880da24300e"
+      }
+    ]
+  },
+  {
+    "repository": "https://github.com/DioxusLabs/taffy",
+    "commit": "0064bd54cbe38bf1d8bcd6ec6ab0704d45fb048a",
+    "files": [
+      {
+        "path": "LICENSE",
+        "local": "third-party/upstream/DioxusLabs-taffy-0064bd54cbe3-LICENSE",
+        "sha": "f6b3d8f95569d0dfca076b6b24901b2a4a89aca8"
+      }
+    ]
+  },
+  {
+    "repository": "https://github.com/dropbox/rust-alloc-no-stdlib",
+    "commit": "0a81fd6928ea3b33c8cd484aa4575d50ffb98012",
+    "files": [
+      {
+        "path": "LICENSE",
+        "local": "third-party/upstream/dropbox-rust-alloc-no-stdlib-0a81fd6928ea-LICENSE",
+        "sha": "cd496ba72eb37e83a44958358d1f89a8a28cbc15"
+      }
+    ]
+  },
+  {
+    "repository": "https://github.com/madsmtm/objc2",
+    "commit": "b4167b582b2f75f9a1be75495c41b765344fd03c",
+    "files": [
+      {
+        "path": "LICENSE.md",
+        "local": "third-party/upstream/madsmtm-objc2-b4167b582b2f-LICENSE.md",
+        "sha": "540ae4c81adb5f64a9f61e222b688880da24300e"
+      }
+    ]
+  }
+]

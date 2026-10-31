@@ -1,4 +1,4 @@
-import { effect, signal, Text, token, View } from "nsh";
+import { effect, Scroll, signal, Text, token, View } from "nsh";
 import { Diagnostics } from "difflens/native";
 import { diagnosticState, loadDiagnostics, errorMessage } from "../diagnostics";
 import { Button, Dialog, Menu, MenuItem, Radio, RadioGroup, Tab, Tabs } from "nsh/base";
@@ -10,6 +10,7 @@ import {
 import { accentClasses } from "../appearance";
 import { watchUiActivity } from "../ui-activity";
 import { HintTarget } from "./Hint";
+import { UpdateSettings } from "./UpdateSettings";
 
 const accentNames: Record<Accent, Message> = { blue: "Blue", teal: "Teal", green: "Green", rose: "Rose", amber: "Amber" };
 const appearances: { value: Appearance; label: Message }[] = [
@@ -18,10 +19,14 @@ const appearances: { value: Appearance; label: Message }[] = [
 
 export function SettingsDialog(props: {
   error: string | null;
+  section?: "updates" | null;
   onClose: () => void;
   onSaved: () => void;
+  installing?: boolean;
+  onInstallUpdate: () => Promise<string | null>;
 }) {
-  const saving = signal(false);
+  const savingPreference = signal(false);
+  const saving = () => !!props.installing || savingPreference();
   const error = signal(props.error);
   const opening = signal(false);
   effect(() => { void loadDiagnostics(); });
@@ -63,7 +68,7 @@ export function SettingsDialog(props: {
   };
   async function changePreference(update: Partial<Preferences>) {
     if (saving()) return;
-    saving.set(true);
+    savingPreference.set(true);
     error.set(null);
     try {
       await updatePreferences(update);
@@ -75,7 +80,7 @@ export function SettingsDialog(props: {
         }),
       );
     } finally {
-      saving.set(false);
+      savingPreference.set(false);
     }
   }
   return (
@@ -94,6 +99,8 @@ export function SettingsDialog(props: {
         <Text class="text-[15px] font-semibold text-foreground">
           {t("Settings")}
         </Text>
+        <Scroll class="min-h-0" style={{ maxHeight: 440 }}>
+          <View class="gap-3">
         <View class="gap-1.5">
           <Text class="text-[11px] font-semibold text-muted-foreground">{t("Appearance")}</Text>
           <Tabs class="flex-row gap-1 rounded bg-muted p-1">
@@ -142,6 +149,7 @@ export function SettingsDialog(props: {
         <Text class="text-[11px] text-muted-foreground">
           {t("Your choice is saved on this device.")}
         </Text>
+        <UpdateSettings focused={props.section === "updates"} onInstall={props.onInstallUpdate} />
         <View class="gap-2 border-t border-border pt-3">
           <Text class="text-[11px] font-semibold text-muted-foreground">{t("Diagnostics")}</Text>
           {diagnosticsContent()}
@@ -149,6 +157,8 @@ export function SettingsDialog(props: {
         {error() ? (
           <Text class="text-[11px] text-destructive">{error()}</Text>
         ) : null}
+          </View>
+        </Scroll>
         <View class="flex-row justify-end">
           <Button
             testID="close-settings"

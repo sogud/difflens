@@ -7,6 +7,9 @@ mod files;
 mod git;
 mod history;
 mod operations;
+pub mod updates;
+pub mod update_install;
+pub use updates::UpdateStatus;
 pub use operations::{
     GitContext, GitOperationOutcome, GitOperationPlan, GitOperationRequest, GitReference, GitStash,
 };
@@ -24,6 +27,7 @@ mod tests;
 fn native(registry: &mut Registry) {
     registry.module::<Workspace>();
     registry.module::<Diagnostics>();
+    registry.module::<Updater>();
     registry.register::<code_diff::CodeDiff>();
 }
 
@@ -396,6 +400,24 @@ impl Diagnostics {
         })
         .await
     }
+}
+
+/// Signed GitHub Beta updates for the installed macOS application.
+#[module]
+pub struct Updater;
+
+#[module]
+impl Updater {
+    /// Reads update progress without starting network work.
+    pub fn state() -> UpdateStatus { updates::state() }
+    /// Checks signed releases in the configured update channel.
+    pub async fn check() -> Result<UpdateStatus, String> { background("updates.check", updates::check).await }
+    /// Downloads and verifies the checked native offer.
+    pub async fn download() -> Result<UpdateStatus, String> { background("updates.download", updates::download).await }
+    /// Stages the verified app and prepares an exit-watching installer.
+    pub async fn install() -> Result<(), String> { background("updates.install", updates::install).await }
+    /// Acknowledges a restored first layout after an update launch.
+    pub async fn mark_healthy() -> Result<(), String> { background("updates.startup", update_install::mark_healthy).await }
 }
 
 async fn background<T, F>(name: &'static str, operation: F) -> Result<T, String>

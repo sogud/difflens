@@ -10,6 +10,7 @@ import { fileTranslations } from "./locales/files";
 import { gitTranslations } from "./locales/git";
 import { importTranslations } from "./locales/imports";
 import { workspaceTranslations } from "./locales/workspace";
+import { updateTranslations } from "./locales/updates";
 import type { TranslatedMessage } from "./locales/types";
 export { language, type Language };
 export const SETTINGS_STORAGE_KEY = PREFERENCES_STORAGE_KEY;
@@ -170,6 +171,31 @@ const chinese = {
   "Could not save settings: {error}": "无法保存设置：{error}",
   "Could not load settings: {error}": "无法读取设置：{error}",
   "The saved language setting is invalid.": "保存的语言设置无效。",
+  "Check for Updates…": "检查更新…",
+  "Check for updates": "检查更新",
+  "Checking for updates…": "正在检查更新…",
+  Updates: "更新",
+  "Current version": "当前版本",
+  Channel: "通道",
+  Beta: "Beta",
+  "Automatically check for updates": "自动检查更新",
+  "Version {version} (build {build}) is available.": "版本 {version}（构建 {build}）可用。",
+  "Download update": "下载更新",
+  "Downloading update…": "正在下载更新…",
+  "Download progress": "下载进度",
+  "Update ready": "更新已就绪",
+  "Restart and install": "重启并安装",
+  "DiffLens will close and reopen to finish installing the update.": "DiffLens 将关闭并重新打开以完成更新安装。",
+  "Installing update…": "正在安装更新…",
+  "Update failed: {error}": "更新失败：{error}",
+  "Private Beta updates require the GitHub CLI to be signed in with access to this repository.":
+    "私有 Beta 更新需要已登录 GitHub CLI，并具备此仓库的访问权限。",
+  "Open release page": "打开发布页面",
+  "Could not install the update: {error}": "无法安装更新：{error}",
+  "Finish the current Git operation or scan before installing the update.":
+    "请先完成当前的 Git 操作或扫描，再安装更新。",
+  "Automatic updates are not available in this build.": "此构建不支持自动更新。",
+  "Update available": "有可用更新",
   "Staging file": "正在暂存文件",
   "Unstaging file": "正在取消暂存",
   "Staging changes": "正在暂存更改",
@@ -341,7 +367,7 @@ const chinese = {
 export type Message = keyof typeof chinese;
 const translations = {
   ...historyTranslations, ...settingsTranslations, ...menuTranslations, ...fileTranslations,
-  ...gitTranslations, ...importTranslations, ...workspaceTranslations, ...workflowTranslations,
+  ...gitTranslations, ...importTranslations, ...workspaceTranslations, ...workflowTranslations, ...updateTranslations,
 } satisfies Record<Message, TranslatedMessage>;
 
 export const MESSAGE_KEYS = Object.keys(chinese) as Message[];

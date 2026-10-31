@@ -12,7 +12,14 @@ export type Accent = typeof ACCENTS[number];
 export type Appearance = "system" | "light" | "dark";
 export type ChangeView = "tree" | "list";
 export type DiffLayout = "split" | "unified";
-export type Preferences = { language: Language; appearance: Appearance; accent: Accent; changeView: ChangeView; diffLayout: DiffLayout };
+export type Preferences = {
+  language: Language;
+  appearance: Appearance;
+  accent: Accent;
+  changeView: ChangeView;
+  diffLayout: DiffLayout;
+  automaticUpdates: boolean;
+};
 
 export class InvalidPreferencesError extends Error {}
 
@@ -21,7 +28,14 @@ export function languageForLocale(value: string): Language {
   return LANGUAGES.includes(code as Language) ? code as Language : "en";
 }
 
-const state = signal<Preferences>({ language: languageForLocale(locale()), appearance: "system", accent: "blue", changeView: "tree", diffLayout: "split" });
+const state = signal<Preferences>({
+  language: languageForLocale(locale()),
+  appearance: "system",
+  accent: "blue",
+  changeView: "tree",
+  diffLayout: "split",
+  automaticUpdates: true,
+});
 export const preferences = () => state();
 export const language = () => state().language;
 let writes: Promise<void> = Promise.resolve();
@@ -40,11 +54,20 @@ export async function restorePreferences(): Promise<void> {
   const accent = "accent" in saved ? saved.accent : "blue";
   const changeView = "changeView" in saved ? saved.changeView : "tree";
   const diffLayout = "diffLayout" in saved ? saved.diffLayout : "split";
+  const automaticUpdates = "automaticUpdates" in saved ? saved.automaticUpdates : true;
   if (!(appearance === "system" || appearance === "light" || appearance === "dark") ||
       typeof accent !== "string" || !ACCENTS.includes(accent as Accent) ||
       !(changeView === "tree" || changeView === "list") ||
-      !(diffLayout === "split" || diffLayout === "unified")) throw new InvalidPreferencesError();
-  state.set({ language: saved.language as Language, appearance, accent: accent as Accent, changeView, diffLayout });
+      !(diffLayout === "split" || diffLayout === "unified") ||
+      typeof automaticUpdates !== "boolean") throw new InvalidPreferencesError();
+  state.set({
+    language: saved.language as Language,
+    appearance,
+    accent: accent as Accent,
+    changeView,
+    diffLayout,
+    automaticUpdates,
+  });
 }
 
 export function updatePreferences(update: Partial<Preferences>): Promise<void> {

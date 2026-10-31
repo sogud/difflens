@@ -3,6 +3,14 @@
 fn main() -> std::process::ExitCode {
     use nsh_app_difflens::diagnostics;
     let arguments: Vec<_> = std::env::args().collect();
+    if arguments.get(1).is_some_and(|argument| argument == "--apply-update") {
+        let Some(path) = arguments.get(2) else { return std::process::ExitCode::FAILURE; };
+        return match nsh_app_difflens::update_install::apply_from_argument(std::path::Path::new(path)) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => { eprintln!("{error}"); std::process::ExitCode::FAILURE }
+        };
+    }
+    nsh_app_difflens::update_install::register_startup(&arguments);
     if arguments.iter().any(|argument| argument == "--diagnostics") {
         return match diagnostics::print_configuration() {
             Ok(()) => std::process::ExitCode::SUCCESS,
@@ -64,6 +72,7 @@ fn main() -> std::process::ExitCode {
         nsh_app_difflens::__nsh_native_module(),
     ]);
     let result = nsh_macos_app::main();
+    nsh_app_difflens::updates::shutdown();
     diagnostics::finish(result == std::process::ExitCode::SUCCESS);
     result
 }
