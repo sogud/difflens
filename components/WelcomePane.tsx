@@ -3,12 +3,10 @@ import { accentClasses } from "../appearance";
 import { Text, View } from "nsh";
 import { Button } from "nsh/base";
 import type { SourceKind } from "../library";
-import { LoadingStatus } from "./LoadingStatus";
 
 export function WelcomePane(props: {
   busy: boolean;
   emptyDirectory: boolean;
-  loadingMessage: string;
   onChoose: (kind: SourceKind) => void;
   onEnterPath: () => void;
 }) {
@@ -59,7 +57,6 @@ export function WelcomePane(props: {
           {t("Enter a path instead…")}
         </Text>
       </Button>
-      {props.busy ? <LoadingStatus label={props.loadingMessage} /> : null}
     </View>
   );
 }

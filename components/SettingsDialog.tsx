@@ -8,6 +8,7 @@ import {
   type Accent, type Appearance, type Preferences,
 } from "../preferences";
 import { accentClasses } from "../appearance";
+import { watchUiActivity } from "../ui-activity";
 import { HintTarget } from "./Hint";
 
 const accentNames: Record<Accent, Message> = { blue: "Blue", teal: "Teal", green: "Green", rose: "Rose", amber: "Amber" };
@@ -24,6 +25,7 @@ export function SettingsDialog(props: {
   const error = signal(props.error);
   const opening = signal(false);
   effect(() => { void loadDiagnostics(); });
+  watchUiActivity(() => diagnosticState().kind === "loading" ? { kind: "source", label: t("Reading diagnostics…") } : null);
   async function openDiagnostic(action: () => Promise<void>) {
     if (opening()) return;
     opening.set(true);
@@ -34,7 +36,7 @@ export function SettingsDialog(props: {
   }
   const diagnosticsContent = () => {
     const state = diagnosticState();
-    if (state.kind === "loading") return <Text class="text-[11px] text-muted-foreground">{t("Reading diagnostics…")}</Text>;
+    if (state.kind === "loading") return <View />;
     if (state.kind === "failed") return <Text class="text-[11px] text-destructive">{t("Diagnostics unavailable: {error}", { error: state.error })}</Text>;
     const info = state.info;
     return <View testID="diagnostics-info" class="gap-2">

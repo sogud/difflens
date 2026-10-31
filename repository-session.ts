@@ -1,4 +1,5 @@
 import type { RepositoryTab } from "./ui-types";
+import { workingFileKey } from "./working-editor-tabs";
 
 export type HistorySearchField = "message" | "author" | "id";
 export interface HistoryNavigation {
@@ -15,6 +16,8 @@ export interface RepositorySession {
   commitMessage: string;
   branchName: string;
   workingFile: WorkingSelection | null;
+  /** Missing in legacy sessions; an empty array preserves an explicitly closed editor area. */
+  openFiles?: WorkingSelection[];
   previewPath: string | null;
   commitId: string | null;
   commitFilePath: string | null;
@@ -48,14 +51,18 @@ function navigation(value: unknown): value is HistoryNavigation {
     typeof value.index === "number" && Number.isInteger(value.index) && value.index >= 0 && value.index < 50 &&
     typeof value.branch === "string" && value.branch.length <= 1024;
 }
+function workingFile(value: unknown): value is WorkingSelection {
+  return record(value) && typeof value.path === "string" && value.path.length <= 8192 && typeof value.staged === "boolean";
+}
 function session(value: unknown): value is RepositorySession {
   if (!record(value) || !["changes", "files", "history"].includes(String(value.tab))) return false;
   if (typeof value.commitMessage !== "string" || value.commitMessage.length > 65536 ||
       typeof value.branchName !== "string" || value.branchName.length > 1024 ||
       !nullableText(value.previewPath) || !nullableText(value.commitFilePath) || !commitId(value.commitId) ||
       !navigation(value.history) || typeof value.updatedAt !== "number" || !Number.isFinite(value.updatedAt)) return false;
-  return value.workingFile === null || (record(value.workingFile) && typeof value.workingFile.path === "string" &&
-    value.workingFile.path.length <= 8192 && typeof value.workingFile.staged === "boolean");
+  if (value.openFiles !== undefined && (!Array.isArray(value.openFiles) || value.openFiles.length > 512 ||
+      !value.openFiles.every(workingFile) || new Set(value.openFiles.map(workingFileKey)).size !== value.openFiles.length)) return false;
+  return value.workingFile === null || workingFile(value.workingFile);
 }
 
 export function readRepositorySessions(serialized: string | null): RepositorySessions {

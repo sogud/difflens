@@ -5,7 +5,7 @@ import { Input } from "nsh/base";
 import { Button, Dialog, Tab, Tabs } from "nsh/base";
 import { Workspace } from "difflens/native";
 import type { SourceKind } from "../library";
-import { LoadingStatus } from "./LoadingStatus";
+import { watchUiActivity } from "../ui-activity";
 
 export function AddSourceDialog(props: {
   kind: SourceKind;
@@ -13,13 +13,16 @@ export function AddSourceDialog(props: {
   initialError: string | null;
   onCancel: () => void;
   onAdd: (kind: SourceKind, path: string) => Promise<string | null>;
-  loadingMessage: string;
 }) {
   const kind = signal(props.kind);
   const path = signal(props.initialPath);
   const error = signal(props.initialError);
   const activity = signal<"idle" | "choosing" | "adding">("idle");
   const busy = () => activity() !== "idle";
+  watchUiActivity(() => busy() ? {
+    kind: "source", label: activity() === "choosing" ? t("Choosing folder…") : t(kind() === "repository" ? "Opening repository…" : "Scanning nested repositories…"),
+    detail: activity() === "adding" ? path() : undefined,
+  } : null);
 
   async function browse() {
     if (busy()) return;
@@ -133,22 +136,6 @@ export function AddSourceDialog(props: {
             </Text>
           ) : null}
         </View>
-        {busy() ? (
-          <LoadingStatus
-            testID="import-loading"
-            label={
-              activity() === "choosing"
-                ? t("Choosing folder…")
-                : props.loadingMessage
-            }
-            path={activity() === "adding" ? path() : undefined}
-            hint={
-              activity() === "adding" && kind() === "directory"
-                ? t("Large directories may take a moment.")
-                : undefined
-            }
-          />
-        ) : null}
         <View class="flex-row items-center gap-1.5">
           <Text class="min-w-0 flex-1 text-[11px] text-muted-foreground">
             {t("Saved between launches.")}

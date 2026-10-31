@@ -5,6 +5,13 @@ import type { Menu } from "nsh/desktop";
 export type WorkflowKind = "merge" | "rebase" | "cherryPick" | "revert" | "checkoutCommit" |
   "createBranch" | "renameBranch" | "deleteBranch" | "tagCreate" | "tagDelete" |
   "stashPush" | "stashApply" | "stashPop" | "stashDrop" | "unstageAll" | "resolve" | "continue" | "abort" | "skip";
+export type WorkflowPresentation = "direct" | "input" | "confirm";
+export function workflowPresentation(kind: string): WorkflowPresentation {
+  if (["unstageAll", "resolve", "continue", "stashApply", "stashPop"].includes(kind)) return "direct";
+  if (["createBranch", "renameBranch", "tagCreate", "stashPush"].includes(kind)) return "input";
+  return "confirm";
+}
+
 export type RequestWorkflow = (request: GitOperationRequest) => void;
 export const workflowTitles: Record<WorkflowKind, Message> = {
   merge: "Merge into current branch…", rebase: "Rebase current branch onto…",

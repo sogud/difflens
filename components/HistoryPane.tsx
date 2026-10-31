@@ -8,7 +8,7 @@ import { freshHistory, type HistoryNavigation, type HistorySearchField } from ".
 import { Hint } from "./Hint";
 import { IconButton } from "./IconButton";
 import { accentClasses } from "../appearance";
-import { LoadingStatus } from "./LoadingStatus";
+import { watchUiActivity } from "../ui-activity";
 import { commitWorkflowMenu, type RequestWorkflow } from "../git-workflows";
 
 export function HistoryPane(props: {
@@ -30,6 +30,7 @@ export function HistoryPane(props: {
   const query = signal("");
   const field = signal<HistorySearchField>("message");
   const loading = signal(true);
+  watchUiActivity(() => loading() ? { kind: "history", label: t("Loading history…"), detail: props.branch } : null);
   const error = signal<string | null>(null);
   const hasMore = signal(false);
   const changed = signal(false);
@@ -166,7 +167,6 @@ export function HistoryPane(props: {
         {startOffset() > 0 ? <Button testID="history-latest" disabled={props.disabled} onPress={() => restart()} class="rounded px-1 py-0.5 hover:bg-muted"><Text class={"text-[10px] " + accentClasses().text}>{t("Back to latest")}</Text></Button> : null}
       </View>
       {changed() ? <Text testID="history-changed" class="text-[10px] text-muted-foreground">{t("History changed. Refresh to see the latest commits.")}</Text> : null}
-      {loading() ? <LoadingStatus testID="history-loading" label={t("Loading history…")} /> : null}
       {error() ? <View class="gap-1">
         <Text testID="history-error" class="text-[11px] text-destructive">{error()}</Text>
         <Button testID="history-retry" disabled={props.disabled} onPress={() => { void load(loadingMore ? nextOffset ?? startOffset() : startOffset(), loadingMore, generation); }} class="rounded px-2 py-1 hover:bg-muted"><Text class="text-[11px] text-foreground">{t("Retry")}</Text></Button>

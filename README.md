@@ -4,6 +4,12 @@ A compact desktop Git client for reviewing code changes across nested repositori
 
 See [architecture](docs/architecture.md) for module boundaries and data contracts.
 
+## Download
+
+The first preview is [v0.1.0, build 18](https://github.com/sogud/difflens/releases/tag/v0.1.0), for **Apple Silicon Macs running macOS 14 or later**. Download `DiffLens-0.1.0-macos-arm64.zip`, quit any running copy, extract it and move `DiffLens.app` into Applications. Git must be available on PATH.
+
+The app is ad hoc signed and is not notarized; macOS may require approval in **System Settings → Privacy & Security**. Automatic update checks and installation are not implemented. To update, download a newer release and replace the app after quitting it. Repository sources and preferences are stored separately from the app bundle.
+
 ## Name and domain
 
 The product name is **DiffLens**. Cloudflare search on 2026-10-26 showed difflens.dev at $8.20 for the first year and $12.20 per year on renewal; difflens.app was $8.20 for the first year and $14.20 per year on renewal. Search availability is not a registration. Neither domain has been purchased; check availability and renewal pricing again before registering.
@@ -28,19 +34,23 @@ Each library entry's **•••** menu can open its folder in the file manager 
 
 Select a repository to inspect diffs, stage or unstage files, write a commit, switch or create a local branch, and run Fetch, Pull (fast-forward only), or Push.
 
-The icon beside the Changes sidebar tabs switches changed files between a compact folder tree and a flat list. Folders collapse independently in Staged and Unstaged. Flat rows show the file name before the directory. The diff header switches between side-by-side and unified views for both working changes and historical commits. The initial views are tree and side-by-side; both choices are saved.
+The icon in the Changes sidebar header switches changed files between a compact folder tree and a flat list. Folders collapse independently in Staged and Unstaged. Flat rows show the file name before the directory. The diff header switches between side-by-side and unified views for both working changes and historical commits. The initial views are tree and side-by-side; both choices are saved.
 
-The **Git actions / Git 操作** icon opens local branches, remote-tracking references, tags and Stashes. Right-click a reference to create, rename, safely delete, merge or rebase a branch, or cherry-pick/revert its tip. History commit menus also offer Cherry-pick, Revert, branch/tag creation and detached checkout. Each operation first shows its repository, HEAD, target and effects; **Review operation → Run operation** confirms execution. Revert adds a compensating commit and preserves history.
+Working-change tabs contain files you opened, in opening order. Each tab has a close button. Its context menu closes that tab, other tabs, tabs to the left or right, or all working-change tabs. **⌘W** closes the active working-change tab; **⇧⌘W** closes the window. Closing tabs leaves Git changes and commit drafts intact. Open tabs and an explicitly empty editor area are restored for each workdir.
+
+The title bar has separate **Repository** and **Branch** pickers with search. Repository choices combine discovered paths, saved repositories, recent workdirs and available worktrees. Worktrees are collapsed under a main repository when native association or a matching `.worktrees/<task>/...` layout identifies that main path. Child rows show branch/task names, and search can find them. Choosing a repository or local branch switches it directly. **Manage repositories…** opens the advanced directory/library panel; opening a picker does not scan the filesystem.
+
+The left rail's **Branches and Stash** icon opens a docked pane for local branches, remote-tracking references, tags and stashes. Click an item to select it; use its context menu or **More actions** for operations. New branch/tag names and stash descriptions use an inline form. Delete and history-changing actions show one automatically prepared preview and confirmation. Backend preparation and execution revalidation remain separate; the UI no longer requires a universal Review operation → Run operation sequence. Revert adds a compensating commit and preserves history.
 
 Stash supports save (optionally including untracked files), apply, pop and confirmed deletion. Conflicts retain their Git state and show Continue, Skip or Abort where supported. Open a conflicted file in the system editor, resolve it, then use **Mark resolved** before continuing. This version has no inline three-way merge editor. Branch deletion is non-forced; conflicting stash pops retain the stash.
 
 The library **+** menu also offers Clone and Create repository. Both create a new named directory under a selected parent; an existing destination is rejected.
 
-Drag the column dividers and section grips to resize the library, repository/worktree areas, changed-file sections, commit editor and historical file/diff review. Panel sizes are saved across launches. The commit editor supports multiple lines; Enter adds a line and **Commit staged** submits the draft.
+Drag the dividers to resize navigation, Git references, worktrees, changed-file sections, the commit editor and historical review. Navigation and the editor share one native panel group, so divider movement resizes both in the core before drag-end persistence. Repository and worktree lists use virtual viewports. Panel sizes are saved across launches. The commit message and **Commit** button sit above the Changes lists. Enter adds a line; **⌘Enter** submits staged changes when that sidebar is active. Commit drafts remain scoped to the selected workdir.
 
-Use the toolbar settings icon or press **⌘,** to choose an accent (Blue, Teal, Green, Rose or Amber), set the appearance to System, Light or Dark, and switch language. The interface supports 简体中文, English, 日本語, 한국어, Français, Deutsch, Español and Português. Choices apply immediately and are saved together; older language-only settings remain compatible. The first launch matches a supported system language or falls back to English. App labels and menus are translated; paths, branch names, commit contents and Git diagnostics retain their original text.
+Use the left rail's settings icon or press **⌘,** to choose an accent (Blue, Teal, Green, Rose or Amber), set the appearance to System, Light or Dark, and switch language. The interface supports 简体中文, English, 日本語, 한국어, Français, Deutsch, Español and Português. Choices apply immediately and are saved together; older language-only settings remain compatible. The first launch matches a supported system language or falls back to English. App labels and menus are translated; paths, branch names, commit contents and Git diagnostics retain their original text.
 
-Imports show an animated indicator with the current step: opening a repository, scanning a directory, or reading repository details. Loading indicators also appear while restoring the library, reading diffs and running Git actions.
+Loading, refresh, scan and Git-operation progress share one inline status in the window title bar. Content panes and dialogs report their activity there. Very short tasks do not flash the indicator, and visible progress has a brief minimum duration. Hover shows details, and a stop control remains available only while its cancellable scan is active. Errors and conflict actions stay in their relevant views.
 
 ## Install on this Mac
 
@@ -52,7 +62,7 @@ The app is installed at `~/Applications/DiffLens.app`. Once installed, it runs w
 
 A matching debug-symbol bundle is saved at `.nsh/out/DiffLens.app.dSYM` for crash symbolication.
 
-This build uses ad hoc signing for local use. It is not a notarized distribution release. Publishing and update checks are deferred.
+The GitHub preview uses this ad hoc signed bundle. Automatic updates are not implemented; releases are installed manually as described above.
 
 ## Scanning and cache
 
@@ -87,7 +97,7 @@ Right-click a repository, library entry, history commit or file for its context 
 
 ## Files and worktrees
 
-Use **Files / 文件** beside Changes to browse the selected repository, including unchanged and untracked files. Folders load when expanded. Text previews use NSH's read-only editor with line numbers and syntax highlighting; binary files and files over 2 MiB show their size and an explanation. Git metadata is hidden, and previews cannot follow a symbolic link outside the selected repository. Use the file-list refresh icon to reread the list and current preview.
+Choose **Files / 文件** in the left icon rail to browse the selected repository, including unchanged and untracked files. Folders load when expanded. Text previews use NSH's read-only editor with line numbers and syntax highlighting; binary files and files over 2 MiB show their size and an explanation. Git metadata is hidden, and previews cannot follow a symbolic link outside the selected repository. Use the file-list refresh icon to reread the list and current preview.
 
 **Associated worktrees / 关联 worktree** lists the selected repository's main and linked working directories, including paths outside the imported source. It shows their branches, current/main markers and availability. Click a worktree to view it. This version does not create, remove or prune worktrees.
 

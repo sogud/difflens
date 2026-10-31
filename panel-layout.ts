@@ -8,6 +8,7 @@ export const PANEL_LIMITS = {
   sidebar: { size: 240, min: 180, max: 600 },
   changes: { size: 340, min: 240, max: 900 },
   navigation: { size: 230, min: 180, max: 900 },
+  git: { size: 300, min: 230, max: 800 },
   library: { size: 140, min: 72, max: 500 },
   worktrees: { size: 148, min: 64, max: 600 },
   staged: { size: 128, min: 64, max: 1200 },

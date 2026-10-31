@@ -6,9 +6,10 @@ import { Button } from "nsh/base";
 import { Workspace, type FileEntry, type RepositoryDetails } from "difflens/native";
 import { t } from "../i18n";
 import { errorMessage } from "../diagnostics";
+import { DENSITY } from "../ui-density";
 import { Icon } from "./Icon";
 import { IconButton } from "./IconButton";
-import { LoadingStatus } from "./LoadingStatus";
+import { watchUiActivity } from "../ui-activity";
 
 type Folder =
   | { kind: "loading" }
@@ -26,11 +27,16 @@ export function FileBrowser(props: {
   disabled: boolean;
   onPreview: (path: string) => void;
   onOpenEditor: (path: string) => void;
+  onClose?: () => void;
 }) {
   const folders = signal<Record<string, Folder>>({});
   const expanded = signal<string[]>([""]);
   let generation = 0;
   cleanup(() => { generation += 1; });
+  watchUiActivity(() => {
+    const pending = Object.entries(folders()).find(([, folder]) => folder.kind === "loading");
+    return pending ? { kind: "files", label: t("Reading files…"), detail: pending[0] || props.repository.path } : null;
+  });
 
   async function load(path: string, root: string, request: number) {
     folders.update((current) => ({ ...current, [path]: { kind: "loading" } }));
@@ -96,21 +102,23 @@ export function FileBrowser(props: {
   }
 
   return <View testID="file-browser" class="min-h-0 flex-1">
-    <View class="flex-row items-center gap-2 px-2 py-1">
-      <Text class="min-w-0 flex-1 text-[11px] text-muted-foreground">{t("All files · read-only preview")}</Text>
+    <View class="h-8 shrink-0 flex-row items-center gap-1 border-b border-border bg-surface-muted px-2">
+      <Text class="min-w-0 flex-1 text-[11px] font-medium text-foreground">{t("Files")}</Text>
       <IconButton testID="refresh-files" icon="refresh" compact label={t("Refresh files")}
         disabled={props.disabled || folders()[""]?.kind === "loading"} onPress={refresh} />
+      {props.onClose ? <IconButton testID="close-file-browser" icon="stop" compact label={t("Close navigation")} onPress={() => props.onClose?.()} /> : null}
     </View>
     <List
       each={rows()}
       keyExtractor={(row) => row.kind + ":" + (row.kind === "entry" ? row.entry.path : row.path)}
       class="min-h-0 flex-1"
       contentClass="pb-2"
+      estimatedItemSize={DENSITY.compactRowSize}
       empty={<Text class="px-2 py-2 text-[11px] text-muted-foreground">{t("This folder is empty.")}</Text>}
     >{(item) => {
       const row = computed(item);
       return <View style={{ paddingLeft: row().depth * 12 }}>
-        {row().kind === "loading" ? <View class="px-2 py-2"><LoadingStatus label={t("Reading files…")} /></View> :
+        {row().kind === "loading" ? <View class={DENSITY.compactRow} /> :
           row().kind === "failed" ? <Text class="px-2 py-2 text-[11px] text-destructive">{(() => { const current = row(); return current.kind === "failed" ? current.error : ""; })()}</Text> :
           (() => {
             const current = row();
@@ -125,7 +133,7 @@ export function FileBrowser(props: {
               disabled={props.disabled}
               accessibilityLabel={t(entry.isDirectory ? "Toggle folder {path}" : "Preview file {path}", { path: entry.path })}
               onPress={() => choose(entry)}
-              class="h-7 flex-row items-center gap-1.5 px-2 text-left hover:bg-muted selected:bg-accent disabled:opacity-40"
+              class={DENSITY.compactRow + " flex-row items-center gap-1.5 px-2 text-left hover:bg-muted selected:bg-accent disabled:opacity-40"}
             >
               {entry.isDirectory ? <Icon name={expanded().includes(entry.path) ? "chevronDown" : "chevronRight"} size={11} muted /> : <View class="w-[11px]" />}
               <Icon name={entry.isDirectory ? "folder" : "file"} size={14} muted />

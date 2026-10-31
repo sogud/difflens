@@ -1,3 +1,8 @@
+import { createDiffCache } from "./diff-cache";
+import { ReviewHeader, type ReviewFocus } from "./components/ReviewHeader";
+import { currentUiActivity, watchUiActivity, watchUiPresentation } from "./ui-activity";
+import { Hint } from "./components/Hint";
+import { closeWorkingEditors, openWorkingEditor, workingFileKey, type CloseWorkingEditors, type OpenWorkingEditors } from "./working-editor-tabs";
 import { ReviewFileRibbon, type ReviewFileEntry } from "./components/ReviewFileRibbon";
 import { GitOperationBanner } from "./components/GitOperationBanner";
 import { IconButton } from "./components/IconButton";
@@ -6,12 +11,12 @@ import { preferences, updatePreferences } from "./preferences";
 import { accentClasses, applyAppearance } from "./appearance";
 import { createPanelLayout, panelGripClass, panelHandleClass, PANEL_LIMITS } from "./panel-layout";
 import { restoreLanguage, t, type Message } from "./i18n";
-import { cleanup, computed, effect, ErrorBoundary, mount, signal, Storage, Text, View, setAccessibilityFocus, type YNode } from "nsh";
+import { cleanup, computed, effect, ErrorBoundary, mount, signal, Storage, Text, untracked, View, setAccessibilityFocus, type YNode } from "nsh";
 import { loadDiagnostics } from "./diagnostics";
 import { FailurePane } from "./components/FailurePane";
 import { FilePreviewPane } from "./components/FilePreviewPane";
 import { Menu as DesktopMenu, titleBar, Window } from "nsh/desktop";
-import { Button, Input, Tab, Tabs, ResizablePanel, ResizablePanelGroup } from "nsh/base";
+import { ResizablePanel, ResizablePanelGroup } from "nsh/base";
 import {
   Workspace,
   type RepositoryDetails,
@@ -21,8 +26,9 @@ import {
   type GitContext, type GitOperationRequest, type GitOperationPlan, type GitOperationOutcome,
 } from "difflens/native";
 import { RepositorySetupDialog } from "./components/RepositorySetupDialog";
-import { WorkflowDialog } from "./components/WorkflowDialog";
-import { RepositoryToolsDialog } from "./components/RepositoryToolsDialog";
+import { GitPane } from "./components/GitPane";
+import { QuickSwitcher, type SwitcherItem } from "./components/QuickSwitcher";
+import { workflowPresentation, workflowRequest, workflowTitles, type WorkflowKind } from "./git-workflows";
 import { RetainedPane } from "./components/RetainedPane";
 import { CommitReviewPane } from "./components/CommitReviewPane";
 import { ChangesPane } from "./components/ChangesPane";
@@ -56,10 +62,10 @@ import type {
   RepositoryAction,
 } from "./ui-types";
 
-type Auxiliary = "none" | "repositories" | "files";
+type Auxiliary = "none" | "repositories" | "files" | "git";
 type ReviewPresentation =
-  | { kind: "review"; auxiliary: Auxiliary; composer: boolean }
-  | { kind: "focus"; restore: { auxiliary: Auxiliary; composer: boolean } };
+  | { kind: "review"; auxiliary: Auxiliary }
+  | { kind: "focus"; restore: Auxiliary };
 
 type ScanState =
   | { kind: "idle" }
@@ -191,10 +197,12 @@ function App() {
   const storageError = signal<string | null>(null);
   const importForm = signal<ImportForm | null>(null);
   const settingsOpen = signal(false);
-  const toolsRoot = signal<string | null>(null);
+  const pickerOpen = signal<"repository" | "branch" | null>(null);
   const setupClone = signal<boolean | null>(null);
   const workflowForm = signal<{ root: string; request: GitOperationRequest } | null>(null);
   const gitContextState = signal<{ root: string; value: GitContext } | null>(null);
+  const contextLoading = signal(false);
+  const workflowPreparation = signal<{ root: string; label: Message } | null>(null);
   let contextRequest = 0;
   cleanup(() => { contextRequest += 1; });
   const settingsError = signal<string | null>(null);
@@ -203,56 +211,77 @@ function App() {
   const diffState = signal<DiffState>({ kind: "idle" });
   const reviewView = signal<ReviewView>({ kind: "diff" });
   const previewCache = signal<{ repositoryPath: string; state: FilePreviewState } | null>(null);
+  const diffCache = createDiffCache();
   const repositoryRevision = signal(0);
   const repositoryTab = signal<RepositoryTab>("changes");
   const canvasSize = signal({ width: 1200, height: 700 });
-  const presentation = signal<ReviewPresentation>({ kind: "review", auxiliary: "none", composer: false });
+  const presentation = signal<ReviewPresentation>({ kind: "review", auxiliary: "files" });
   const repositoryNavigationVisible = computed(() => { const state = presentation(); return state.kind === "review" && state.auxiliary === "repositories"; });
   const fileNavigationVisible = computed(() => { const state = presentation(); return state.kind === "review" && state.auxiliary === "files"; });
-  const composerVisible = computed(() => { const state = presentation(); return state.kind === "review" && state.composer; });
+  const gitNavigationVisible = computed(() => { const state = presentation(); return state.kind === "review" && state.auxiliary === "git"; });
   let repositoryOpener: YNode | undefined;
   let fileOpener: YNode | undefined;
-  let composerOpener: YNode | undefined;
-  let composerInput: YNode | undefined;
-  let focusOpener: YNode | undefined;
+  let gitOpener: YNode | undefined;
+  let composerInput: { node: YNode; root: string } | null = null;
+  let pendingCommitFocus: string | null = null;
+  const focusOpeners = new Map<RepositoryTab, YNode>();
+  function reviewFocus(tab: RepositoryTab): ReviewFocus {
+    return {
+      active: () => presentation().kind === "focus",
+      toggle: toggleFocus,
+      register: node => {
+        focusOpeners.set(tab, node);
+        return () => { if (focusOpeners.get(tab) === node) focusOpeners.delete(tab); };
+      },
+    };
+  }
   function toggleNavigation(auxiliary: Exclude<Auxiliary, "none">) {
     const state = presentation();
     const closing = state.kind === "review" && state.auxiliary === auxiliary;
-    presentation.set({ kind: "review", auxiliary: closing ? "none" : auxiliary,
-      composer: state.kind === "review" ? state.composer : state.restore.composer });
-    if (closing) { const opener = auxiliary === "repositories" ? repositoryOpener : fileOpener; if (opener) setAccessibilityFocus(opener); }
+    presentation.set({ kind: "review", auxiliary: closing ? "none" : auxiliary });
+    if (closing) {
+      const opener = auxiliary === "repositories" ? repositoryOpener : auxiliary === "git" ? gitOpener : fileOpener;
+      if (opener) setAccessibilityFocus(opener);
+    }
   }
   function toggleFocus() {
     const state = presentation();
-    presentation.set(state.kind === "focus" ? { kind: "review", ...state.restore }
-      : { kind: "focus", restore: { auxiliary: state.auxiliary, composer: state.composer } });
-    if (focusOpener) setAccessibilityFocus(focusOpener);
+    presentation.set(state.kind === "focus" ? { kind: "review", auxiliary: state.restore }
+      : { kind: "focus", restore: state.auxiliary });
+    const opener = focusOpeners.get(repositoryTab()) ?? repositoryOpener;
+    if (opener) setAccessibilityFocus(opener);
   }
-  function toggleComposer() {
-    const state = presentation();
-    presentation.set(state.kind === "review" ? { ...state, composer: !state.composer }
-      : { kind: "review", auxiliary: "none", composer: true });
-    if (state.kind === "review" && state.composer) {
-      if (composerOpener) setAccessibilityFocus(composerOpener);
-    } else composerInput?.focus();
+  function showCommitComposer() {
+    const root = selectedPath();
+    if (!root || isOperating() || isScanning()) return;
+    pendingCommitFocus = root;
+    changeRepositoryTab("changes");
+    presentation.set({ kind: "review", auxiliary: "files" });
+    if (composerInput?.root === root) { composerInput.node.focus(); pendingCommitFocus = null; }
+  }
+  function registerComposer(node: YNode, root: string) {
+    composerInput = { node, root };
+    if (pendingCommitFocus === root && selectedPath() === root) { node.focus(); pendingCommitFocus = null; }
   }
   function openTask(tab: RepositoryTab) {
+    if (!hasRepositories() || isScanning() || isOperating()) return;
     const sameTask = repositoryTab() === tab;
     const state = presentation();
     changeRepositoryTab(tab);
     presentation.set({
       kind: "review",
       auxiliary: sameTask && state.kind === "review" && state.auxiliary === "files" ? "none" : "files",
-      composer: state.kind === "review" ? state.composer : state.restore.composer,
     });
   }
   const workingSelection = signal<WorkingSelection | null>(null);
+  const openedWorkingEditors = signal<OpenWorkingEditors>({ kind: "fresh" });
   const lastPreviewPath = signal<string | null>(null);
   const selectedHistoryCommit = signal<string | null>(null);
   const selectedHistoryFile = signal<string | null>(null);
   const historyRestore = signal<HistoryNavigation>(freshHistory());
   const sessionError = signal<string | null>(null);
   let repositorySessions: RepositorySessions = {};
+  const repositoryCatalog = new Map<string, SwitcherItem[]>();
   let sessionPersistenceEnabled = true;
   let sessionWrites: Promise<void> = Promise.resolve();
   let fileRequest = 0;
@@ -278,7 +307,7 @@ function App() {
   const gitContext = () => { const state = gitContextState(); return state?.root === selectedPath() ? state.value : null; };
 
   const isScanning = computed(() => loading() || picking() || !libraryReady());
-  const isOperating = computed(() => operationState().kind === "running");
+  const isOperating = computed(() => operationState().kind === "running" || workflowPreparation() !== null);
   const loadingMessage = computed(() => {
     if (!libraryReady()) return t("Restoring your library…");
     if (picking()) return t("Choosing folder…");
@@ -297,6 +326,24 @@ function App() {
     const current = sourceLoad();
     return current.kind === "idle" ? undefined : current.path;
   });
+  watchUiActivity(() => {
+    const operation = operationState();
+    if (operation.kind === "running") return { kind: "operation", label: t(operation.label) + "…" };
+    const preparing = workflowPreparation();
+    if (preparing) return { kind: "operation", label: t(preparing.label), detail: preparing.root };
+    if (!libraryReady() || picking() || loading()) return {
+      kind: "source", label: loadingMessage(), detail: loadingPath(),
+      cancel: backgroundScan().kind === "running" ? stopBackgroundScan : undefined,
+    };
+    if (detailState().kind === "loading" || (gitNavigationVisible() && contextLoading())) return { kind: "repository", label: t("Reading repository") };
+    const scan = backgroundScan();
+    return scan.kind === "running" ? {
+      kind: "scan", label: t(scan.discovering ? "Scanning in background · {count} repositories" : "Refreshing cached repositories · {count} repositories", { count: scan.found }),
+      cancel: stopBackgroundScan,
+    } : null;
+  });
+  watchUiPresentation();
+  const uiActivity = computed(currentUiActivity);
   const activeSource = computed(() =>
     sources().find((source) => sourceKey(source) === activeKey()),
   );
@@ -312,25 +359,72 @@ function App() {
     const current = scanState();
     return current.kind === "ready" ? current.selectedPath : null;
   });
+  effect(() => { void selectedPath(); void repositoryRevision(); diffCache.clear(); });
   const currentDetails = computed(() => {
     const state = detailState();
     return state.kind === "ready" && state.details.path === selectedPath() ? state.details : null;
   });
-  const ribbonEntries = computed<ReviewFileEntry[]>(() => {
+  const availableRibbonEntries = computed<ReviewFileEntry[]>(() => {
     const files = currentDetails()?.changes ?? [];
     return [false, true].flatMap(staged => files.filter(file => staged ? file.staged : file.unstaged || file.untracked)
       .map(file => ({ key: (staged ? "staged:" : "unstaged:") + file.path, path: file.path,
         oldPath: file.oldPath ?? null, staged, statusLabel: file.statusLabel, conflicted: file.conflicted })));
   });
+  const ribbonEntries = computed<ReviewFileEntry[]>(() => {
+    const state = openedWorkingEditors();
+    if (state.kind === "fresh") return [];
+    const available = new Map(availableRibbonEntries().map(entry => [entry.key, entry]));
+    return state.files.flatMap(file => { const entry = available.get(workingFileKey(file)); return entry ? [entry] : []; });
+  });
+  effect(() => {
+    const details = currentDetails();
+    if (!details) return;
+    untracked(() => {
+      const state = openedWorkingEditors();
+      if (state.kind === "fresh") return;
+      const available = new Set(availableRibbonEntries().map(entry => entry.key));
+      const files = state.files.filter(file => available.has(workingFileKey(file)));
+      if (files.length === state.files.length) return;
+      openedWorkingEditors.set({ kind: "ready", files });
+      const selected = workingSelection();
+      if (selected && !files.some(file => workingFileKey(file) === workingFileKey(selected))) {
+        diffRequest.set(diffRequest() + 1);
+        diffState.set({ kind: "idle" });
+        workingSelection.set(null);
+      }
+      rememberCurrentSession();
+    });
+  });
   const ribbonSelection = computed<WorkingSelection | null>(() => {
     const diff = diffState();
     return currentDetails() && diff.kind !== "idle" ? { path: diff.filePath, staged: diff.staged } : null;
   });
+  function closeWorkingTabs(target: WorkingSelection, mode: CloseWorkingEditors, expectedRoot: string) {
+    if (selectedPath() !== expectedRoot || isScanning() || isOperating()) return;
+    const state = openedWorkingEditors();
+    if (state.kind !== "ready") return;
+    const active = ribbonSelection() ?? workingSelection();
+    const result = closeWorkingEditors(state.files, target, mode, active);
+    if (!result.changed) return;
+    openedWorkingEditors.set({ kind: "ready", files: result.files });
+    if (result.files.length === 0) diffCache.clear();
+    const changedSelection = (active ? workingFileKey(active) : null) !== (result.selection ? workingFileKey(result.selection) : null);
+    if (changedSelection) {
+      diffRequest.set(diffRequest() + 1);
+      diffState.set({ kind: "idle" });
+      workingSelection.set(result.selection);
+      if (repositoryTab() === "changes") {
+        reviewView.set({ kind: "diff" });
+        if (result.selection) void selectFileDiff(result.selection.path, result.selection.staged);
+      }
+    }
+    rememberCurrentSession();
+  }
   const stagedFileCount = computed(() => currentDetails()?.changes.filter(file => file.staged).length ?? 0);
   const canCommit = computed(() => !isScanning() && !isOperating() && stagedFileCount() > 0 && commitMessage().trim().length > 0);
-  function commit() {
+  function commit(expectedRoot = selectedPath()) {
     const root = selectedPath();
-    if (root && canCommit()) void performRepositoryAction({ kind: "commit", message: commitMessage().trim() }, root);
+    if (root && root === expectedRoot && canCommit()) void performRepositoryAction({ kind: "commit", message: commitMessage().trim() }, root);
   }
   const counts = computed(() => {
     const current = scanState();
@@ -346,13 +440,60 @@ function App() {
     };
   });
 
+  effect(() => {
+    const key = activeKey();
+    const nodes = flattenRepositories(repositories());
+    if (key) untracked(() => repositoryCatalog.set(key, nodes.map(node => ({ key: node.path, label: node.name, detail: node.path }))));
+  });
+  function repositoryChoices(): SwitcherItem[] {
+    const validSources = new Set(sources().map(sourceKey));
+    const choices = new Map<string, SwitcherItem>();
+    for (const [key, items] of repositoryCatalog) if (validSources.has(key)) for (const item of items) choices.set(item.key, item);
+    for (const node of flattenRepositories(repositories())) choices.set(node.path, { key: node.path, label: node.name, detail: node.path });
+    const recent = Object.keys(repositorySessions).sort((left, right) => repositorySessions[right].updatedAt - repositorySessions[left].updatedAt);
+    for (const source of sources()) if (source.kind === "repository") choices.set(source.path, { key: source.path, label: folderName(source.path), detail: source.path });
+    for (const path of recent) if (!choices.has(path)) choices.set(path, { key: path, label: folderName(path), detail: path });
+    const worktrees = associatedWorktrees().filter(worktree => worktree.available);
+    for (const worktree of worktrees) choices.set(worktree.path, { key: worktree.path, label: folderName(worktree.path), detail: worktree.path });
+    const main = worktrees.find(worktree => worktree.isMain);
+    const knownWorktrees = new Set(worktrees.map(worktree => worktree.path));
+    for (const item of choices.values()) {
+      if (knownWorktrees.has(item.key)) continue;
+      const marker = item.key.indexOf("/.worktrees/");
+      if (marker < 0) continue;
+      const prefix = item.key.slice(0, marker);
+      const nested = item.key.slice(marker + "/.worktrees/".length).split("/");
+      const task = nested.shift();
+      const parent = prefix + (nested.length ? "/" + nested.join("/") : "");
+      if (task && parent !== item.key && choices.has(parent)) choices.set(item.key, { ...item, parent, worktree: task });
+    }
+    if (main) for (const worktree of worktrees) {
+      const item = choices.get(worktree.path)!;
+      choices.set(worktree.path, worktree.path === main.path ? { ...item, parent: undefined, worktree: undefined }
+        : { ...item, parent: main.path, worktree: worktree.headLabel || folderName(worktree.path) });
+    }
+    return [...choices.values()].map(item => ({ ...item, current: item.key === selectedPath(), recent: recent.includes(item.key) }))
+      .sort((left, right) => Number(right.current) - Number(left.current) ||
+        (recent.includes(left.key) ? recent.indexOf(left.key) : 999999) - (recent.includes(right.key) ? recent.indexOf(right.key) : 999999) || left.label.localeCompare(right.label));
+  }
+  effect(() => {
+    const root = selectedPath();
+    untracked(() => {
+      if (workflowForm() && workflowForm()!.root !== root) workflowForm.set(null);
+      if (pendingCommitFocus !== root) pendingCommitFocus = null;
+    });
+  });
+
   function rememberCurrentSession(history?: HistoryNavigation) {
     const path = selectedPath();
     if (!path || !libraryReady()) return;
     const previous = repositorySessions[path] ?? freshSession();
+    const editors = openedWorkingEditors();
     rememberSession(repositorySessions, path, {
       ...previous, tab: repositoryTab(), commitMessage: commitMessage(), branchName: branchName(),
-      workingFile: workingSelection(), previewPath: lastPreviewPath(),
+      workingFile: workingSelection(),
+      openFiles: editors.kind === "ready" ? [...editors.files] : undefined,
+      previewPath: lastPreviewPath(),
       commitId: selectedHistoryCommit(), commitFilePath: selectedHistoryFile(),
       history: history ?? previous.history,
     });
@@ -377,7 +518,11 @@ function App() {
     repositoryTab.set(saved.tab);
     commitMessage.set(saved.commitMessage);
     branchName.set(saved.branchName);
-    workingSelection.set(saved.workingFile);
+    const restoredWorkingFile = saved.workingFile && (saved.openFiles === undefined || saved.openFiles.some(file => workingFileKey(file) === workingFileKey(saved.workingFile!)))
+      ? saved.workingFile : saved.openFiles?.[0] ?? null;
+    workingSelection.set(restoredWorkingFile);
+    openedWorkingEditors.set(saved.openFiles !== undefined ? { kind: "ready", files: saved.openFiles }
+      : saved.workingFile ? { kind: "ready", files: [saved.workingFile] } : { kind: "fresh" });
     lastPreviewPath.set(saved.previewPath);
     selectedHistoryCommit.set(saved.commitId);
     selectedHistoryFile.set(saved.commitFilePath);
@@ -409,6 +554,7 @@ function App() {
   }
 
   async function loadRepositoryDetails(repositoryPath: string) {
+    diffCache.clear();
     rememberCurrentSession();
     historyRestore.set({ ...(repositorySessions[repositoryPath]?.history ?? freshHistory()) });
     const existingPreview = previewedFile();
@@ -439,16 +585,14 @@ function App() {
         (file) => file.path === previousSelection.path &&
           (previousSelection.staged ? file.staged : file.unstaged || file.untracked),
       ) : undefined;
-      const firstFile =
-        selectedFile ??
-        details.changes.find((file) => file.unstaged || file.untracked) ??
-        details.changes[0];
+      const editors = openedWorkingEditors();
+      const openFile = editors.kind === "ready" ? editors.files.find(open => details.changes.some(file => file.path === open.path && (open.staged ? file.staged : file.unstaged || file.untracked))) : null;
+      const firstFile = selectedFile ?? (openFile ? details.changes.find(file => file.path === openFile.path)
+        : editors.kind === "fresh" ? details.changes.find(file => file.unstaged || file.untracked) ?? details.changes[0] : undefined);
       if (firstFile) {
         await selectFileDiff(
           firstFile.path,
-          selectedFile && previousSelection
-            ? previousSelection.staged
-            : !(firstFile.unstaged || firstFile.untracked),
+          selectedFile && previousSelection ? previousSelection.staged : openFile?.staged ?? !(firstFile.unstaged || firstFile.untracked),
         );
       } else {
         diffState.set({ kind: "idle" });
@@ -780,9 +924,12 @@ function App() {
       const current = detailState();
       if (root && current.kind === "ready" && diffState().kind === "idle") {
         const previous = workingSelection();
-        const file = current.details.changes.find((file) => file.path === previous?.path) ??
-          current.details.changes.find((file) => file.unstaged || file.untracked) ?? current.details.changes[0];
-        if (file) void selectFileDiff(file.path, previous?.path === file.path && previous.staged ? file.staged : !(file.unstaged || file.untracked));
+        const editors = openedWorkingEditors();
+        const open = editors.kind === "ready" ? editors.files.find(item => current.details.changes.some(file => file.path === item.path && (item.staged ? file.staged : file.unstaged || file.untracked))) : null;
+        const target = previous ?? open;
+        const file = target ? current.details.changes.find(file => file.path === target.path && (target.staged ? file.staged : file.unstaged || file.untracked))
+          : editors.kind === "fresh" ? current.details.changes.find(file => file.unstaged || file.untracked) ?? current.details.changes[0] : undefined;
+        if (file) void selectFileDiff(file.path, target?.staged ?? !(file.unstaged || file.untracked));
       }
     } else {
       const path = lastPreviewPath();
@@ -835,17 +982,24 @@ function App() {
       return;
     }
 
+    if (current.kind !== "ready" || current.details.path !== repositoryPath ||
+        !current.details.changes.some(file => file.path === filePath && (staged ? file.staged : file.unstaged || file.untracked))) return;
+    openedWorkingEditors.set(openWorkingEditor(openedWorkingEditors(), { path: filePath, staged }));
     reviewView.set({ kind: "diff" });
+    const cacheKey = JSON.stringify([repositoryPath, repositoryRevision(), filePath, staged]);
+    const cached = diffCache.get(cacheKey);
     const request = diffRequest() + 1;
     diffRequest.set(request);
-    diffState.set({ kind: "loading", filePath, staged });
     workingSelection.set({ path: filePath, staged });
+    diffState.set(cached !== null ? { kind: "ready", filePath, staged, patch: cached } : { kind: "loading", filePath, staged });
     rememberCurrentSession();
+    if (cached !== null) return;
     try {
       const patch = await Workspace.diffFile(repositoryPath, filePath, staged);
       if (diffRequest() !== request || selectedPath() !== repositoryPath) {
         return;
       }
+      diffCache.set(cacheKey, patch);
       diffState.set({ kind: "ready", filePath, staged, patch });
     } catch (error) {
       if (diffRequest() !== request || selectedPath() !== repositoryPath) {
@@ -873,6 +1027,7 @@ function App() {
     }
 
     const repositoryPath = currentScan.selectedPath;
+    diffCache.clear();
     const request = operationRequest() + 1;
     operationRequest.set(request);
     detailRequest.set(detailRequest() + 1);
@@ -972,25 +1127,46 @@ function App() {
 
   async function refreshGitContext(root: string | null) {
     const request = ++contextRequest;
-    if (!root) { gitContextState.set(null); return; }
+    if (!root) { gitContextState.set(null); contextLoading.set(false); return; }
+    contextLoading.set(true);
     try {
       const context = await Workspace.gitContext(root);
       if (request === contextRequest && selectedPath() === root) gitContextState.set({ root, value: context });
     } catch (cause) {
       if (request === contextRequest && selectedPath() === root) sourceError.set(getErrorMessage(cause));
-    }
+    } finally { if (request === contextRequest) contextLoading.set(false); }
   }
 
+  async function prepareWorkflow(request: GitOperationRequest, root: string): Promise<GitOperationPlan> {
+    if (selectedPath() !== root || isOperating() || isScanning()) throw new Error(t("Repository selection changed. Review the operation again."));
+    const preparing = { root, label: workflowTitles[request.kind as WorkflowKind] ?? "Git operation" };
+    operationState.set({ kind: "idle" });
+    workflowPreparation.set(preparing);
+    try {
+      const plan = await Workspace.prepareOperation(root, request);
+      if (selectedPath() !== root) throw new Error(t("Repository selection changed. Review the operation again."));
+      return plan;
+    } finally { workflowPreparation.set(null); }
+  }
+  async function runSimpleWorkflow(request: GitOperationRequest, root: string) {
+    try { const plan = await prepareWorkflow(request, root); await executeWorkflow(plan); }
+    catch (cause) { if (selectedPath() === root) operationState.set({ kind: "failed", message: getErrorMessage(cause) }); }
+  }
   function requestWorkflow(request: GitOperationRequest, root: string) {
     if (isOperating() || isScanning() || selectedPath() !== root) return;
-    toolsRoot.set(null);
-    workflowForm.set({ root, request });
+    if (workflowPresentation(request.kind) === "direct") {
+      workflowForm.set(null);
+      void runSimpleWorkflow(request, root);
+    } else {
+      workflowForm.set({ root, request });
+      presentation.set({ kind: "review", auxiliary: "git" });
+    }
   }
 
   async function showTools(root: string) {
     if (isOperating() || isScanning()) return;
     if (selectedPath() !== root) await selectRepository(root);
-    if (selectedPath() === root) toolsRoot.set(root);
+    if (selectedPath() === root) presentation.set({ kind: "review", auxiliary: "git" });
   }
 
   function openEditor(path: string, root: string) {
@@ -1001,6 +1177,7 @@ function App() {
   async function executeWorkflow(plan: GitOperationPlan): Promise<GitOperationOutcome> {
     const root = selectedPath();
     if (!root || root !== plan.repositoryPath || isOperating()) throw new Error(t("Repository selection changed. Review the operation again."));
+    diffCache.clear();
     operationState.set({ kind: "running", label: "Git operation" });
     detailRequest.set(detailRequest() + 1);
     diffRequest.set(diffRequest() + 1);
@@ -1043,11 +1220,10 @@ function App() {
     saveLibrary();
   };
   const onCommitMessageChange = (value: string) => { commitMessage.set(value); rememberCurrentSession(); };
-  const onBranchNameChange = (value: string) => { branchName.set(value); rememberCurrentSession(); };
 
   effect(() => {
     const disabled =
-      isScanning() || isOperating() || importForm() !== null || settingsOpen() || workflowForm() !== null || toolsRoot() !== null || setupClone() !== null;
+      isScanning() || isOperating() || importForm() !== null || settingsOpen() || pickerOpen() !== null || setupClone() !== null;
     const active = activeSource();
     Window.setTitle(
       active ? folderName(active.path) + " — DiffLens" : "DiffLens",
@@ -1111,7 +1287,10 @@ function App() {
           },
           { label: t("Fetch"), disabled: disabled || !currentDetails()?.remoteNames.length,
             onSelect: () => { const root = selectedPath(); if (root) void performRepositoryAction({ kind: "fetch" }, root); } },
-          { role: "close", label: t("Close Window") },
+          { label: t("Commit staged"), shortcut: "mod+enter", disabled: disabled || repositoryTab() !== "changes" || !fileNavigationVisible() || !canCommit(), onSelect: () => commit() },
+          { label: t("Close tab"), shortcut: "mod+w", disabled: disabled || repositoryTab() !== "changes" || !ribbonSelection(),
+            onSelect: () => { const root = selectedPath(); const file = ribbonSelection(); if (root && file) closeWorkingTabs(file, "one", root); } },
+          { role: "close", label: t("Close Window"), shortcut: "mod+shift+w" },
         ],
       },
       {
@@ -1135,8 +1314,7 @@ function App() {
             checked: fileNavigationVisible(), onSelect: () => toggleNavigation("files") },
           { label: t("Focus review"), shortcut: "mod+shift+f", when: "notEditing", disabled,
             checked: presentation().kind === "focus", onSelect: toggleFocus },
-          { label: t("Commit composer"), shortcut: "mod+shift+c", when: "notEditing", disabled,
-            checked: composerVisible(), onSelect: toggleComposer },
+          { label: t("Commit composer"), shortcut: "mod+shift+c", when: "notEditing", disabled, onSelect: showCommitComposer },
           { type: "separator" },
           {
             label: t("Nested Repositories"),
@@ -1171,11 +1349,62 @@ function App() {
         initialError={form.error}
         onCancel={() => importForm.set(null)}
         onAdd={addSource}
-        loadingMessage={loadingMessage()}
       />
     ) : null;
   });
   const hasRepositories = computed(() => (counts()?.total ?? 0) > 0);
+  function reviewTabHint(label: Message): string {
+    if (!hasRepositories()) return t("Select a repository");
+    if (isScanning() || isOperating()) return t("Another operation is still running.");
+    return t(label);
+  }
+  function gitToolsHint(): string {
+    if (!hasRepositories()) return t("Select a repository");
+    if (isScanning() || isOperating()) return t("Another operation is still running.");
+    if (!currentDetails()) return t("Reading repository");
+    return t("Branches and Stash");
+  }
+  function pullHint(): string {
+    if (!hasRepositories()) return t("Select a repository");
+    if (isScanning() || isOperating()) return t("Another operation is still running.");
+    if (!currentDetails()) return t("Reading repository");
+    if (!currentDetails()!.hasUpstream) return t("No upstream branch");
+    return t("Pull");
+  }
+  function pushHint(): string {
+    if (!hasRepositories()) return t("Select a repository");
+    if (isScanning() || isOperating()) return t("Another operation is still running.");
+    if (!currentDetails()) return t("Reading repository");
+    if (!currentDetails()!.remoteNames.length) return t("No remotes configured.");
+    return t("Push");
+  }
+  const editorContent = <View testID="review-canvas" class="relative min-h-0 min-w-0 flex-1">
+    <ReviewFileRibbon entries={ribbonEntries()} selection={ribbonSelection()} repositoryPath={selectedPath()}
+      onClose={(file, mode, root) => closeWorkingTabs(file, mode, root)}
+      visible={presentation().kind === "review" && repositoryTab() === "changes" && hasRepositories()}
+      disabled={isScanning() || isOperating() || !currentDetails()} navigationOpen={fileNavigationVisible()}
+      onToggleNavigation={() => toggleNavigation("files")} onSelect={(path, staged) => { void selectFileDiff(path, staged); }} />
+    <View class="relative min-h-0 min-w-0 flex-1">
+      {hasRepositories() ? <>
+        <RetainedPane active={repositoryTab() === "changes"}><DiffPane diff={diffState()} focus={reviewFocus("changes")} /></RetainedPane>
+        <RetainedPane active={repositoryTab() === "files"}><FilePreviewPane state={previewState()} focus={reviewFocus("files")} /></RetainedPane>
+        <RetainedPane active={repositoryTab() === "history"}>
+          {(() => {
+            const root = selectedPath();
+            const id = selectedHistoryCommit();
+            return root && id ? <CommitReviewPane focus={reviewFocus("history")} onWorkflow={(request) => requestWorkflow(request, root)} panelSizes={panelLayout.sizes()} onPanelResize={panelLayout.resize}
+              disabled={isScanning() || isOperating()} repositoryPath={root} commitId={id}
+              initialFilePath={selectedHistoryFile()} onFileSelection={path => {
+                if (selectedPath() === root && selectedHistoryCommit() === id) { selectedHistoryFile.set(path); rememberCurrentSession(); }
+              }} onBack={() => changeRepositoryTab("changes")} />
+              : <View class="flex-1"><ReviewHeader focus={reviewFocus("history")}><Text class="text-[12px] text-foreground">{t("History")}</Text></ReviewHeader><View class="flex-1 items-center justify-center p-4"><Text class="text-[12px] text-muted-foreground">{t("Select a commit to review its files and diff.")}</Text></View></View>;
+          })()}
+        </RetainedPane>
+      </> : <WelcomePane busy={isScanning() || backgroundScan().kind === "running"}
+        emptyDirectory={scanState().kind === "ready" && inventoryComplete() && backgroundScan().kind !== "running"}
+        onChoose={kind => { void chooseSource(kind); }} onEnterPath={enterPath} />}
+    </View>
+  </View>;
 
   return (
     <View class="min-h-0 flex-1 flex-col bg-chrome text-foreground">
@@ -1192,43 +1421,52 @@ function App() {
         >
           <Icon name="lens" size={13} />
           <Text class="text-[12px] font-semibold text-foreground">DiffLens</Text>
-          <Button ref={node => { repositoryOpener = node; }} testID="toggle-repository-drawer" accessibilityLabel={t("Repository navigation")}
-            onPress={() => toggleNavigation("repositories")} class="h-7 min-w-0 shrink flex-row items-center gap-1.5 pl-3 pr-2 hover:bg-muted/40">
-            <Text numberOfLines={1} class="max-w-44 text-[12px] font-medium text-foreground">{currentDetails() ? folderName(currentDetails()!.path) : t("Repositories")}</Text>
-            {currentDetails() ? <>
-              <Icon name="worktree" size={12} muted />
-              <Text numberOfLines={1} class="max-w-48 font-mono text-[11px] text-muted-foreground">{currentDetails()!.branchName ?? currentDetails()!.headLabel}</Text>
-            </> : null}
-          </Button>
-          <View class="min-w-0 flex-1" />
+          <QuickSwitcher label={t("Repository")} value={selectedPath() ? folderName(selectedPath()!) : t("Choose repository")}
+            icon="folder" placeholder={t("Search repositories…")} scope={selectedPath()} disabled={isScanning() || isOperating()}
+            items={repositoryChoices} onSelect={path => { void openWorktree(path); }} onTriggerRef={node => { repositoryOpener = node; }}
+            onOpenChange={open => pickerOpen.set(open ? "repository" : pickerOpen() === "repository" ? null : pickerOpen())}
+            actions={[
+              { label: t("Manage repositories…"), onSelect: () => presentation.set({ kind: "review", auxiliary: "repositories" }) },
+              { label: t("Add Repository…"), onSelect: () => { void chooseSource("repository"); } },
+              { label: t("Add Directory…"), onSelect: () => { void chooseSource("directory"); } },
+            ]} />
+          <QuickSwitcher label={t("Branch")} value={currentDetails()?.branchName ?? currentDetails()?.headLabel ?? "-"}
+            icon="worktree" placeholder={t("Search branches…")} scope={selectedPath()} disabled={isScanning() || isOperating() || !currentDetails()}
+            items={() => (currentDetails()?.branches ?? []).map(branch => ({ key: branch, label: branch, current: branch === currentDetails()?.branchName }))
+              .sort((left, right) => Number(right.current) - Number(left.current) || left.label.localeCompare(right.label))}
+            onSelect={(branch, root) => { if (root && root === selectedPath() && branch !== currentDetails()?.branchName) void performRepositoryAction({ kind: "switchBranch", branchName: branch }, root); }}
+            onOpenChange={open => pickerOpen.set(open ? "branch" : pickerOpen() === "branch" ? null : pickerOpen())}
+            actions={[
+              { label: t("Create branch…"), onSelect: root => { if (root && root === selectedPath()) requestWorkflow(workflowRequest("createBranch"), root); } },
+              { label: t("Branches and Stash"), onSelect: root => { if (root && root === selectedPath()) void showTools(root); } },
+            ]} />
+          <View class="min-w-0 flex-1 flex-row items-center justify-center px-3">
+            {(() => {
+              const activity = uiActivity();
+              return activity ? <View testID="window-activity" class="min-w-0 max-w-96 flex-row items-center gap-1">
+                <View class="min-w-0 flex-1" tooltip={<Hint text={activity.detail ? activity.label + "\n" + activity.detail : activity.label} />}>
+                  <LoadingStatus label={activity.label} />
+                </View>
+                {activity.cancel ? <IconButton icon="stop" testID="stop-scan" compact label={t("Stop scanning")} onPress={() => uiActivity()?.cancel?.()} /> : null}
+              </View> : null;
+            })()}
+          </View>
           {currentDetails() ? <Text class="pr-2 text-[10px] text-muted-foreground">{t("{count} files", { count: currentDetails()!.changes.length })}</Text> : null}
-          <IconButton icon="pull" label={t("Pull")} compact disabled={isScanning() || isOperating() || !currentDetails()?.hasUpstream}
+          <IconButton icon="pull" hint={pullHint()} label={t("Pull")} compact disabled={isScanning() || isOperating() || !currentDetails()?.hasUpstream}
             onPress={() => { const root = selectedPath(); if (root) void performRepositoryAction({ kind: "pull" }, root); }} />
-          <IconButton icon="push" label={t("Push")} compact disabled={isScanning() || isOperating() || !currentDetails()?.remoteNames.length}
+          <IconButton icon="push" hint={pushHint()} label={t("Push")} compact disabled={isScanning() || isOperating() || !currentDetails()?.remoteNames.length}
             onPress={() => { const root = selectedPath(); if (root) void performRepositoryAction({ kind: "push" }, root); }} />
-          <IconButton icon="more" label={t("Git actions")} compact disabled={!currentDetails() || isScanning() || isOperating()}
-            onPress={() => { const root = selectedPath(); if (root) void showTools(root); }} />
+          <IconButton icon="more" label={t("More actions")} compact disabled={isScanning() || isOperating()}
+            onPress={() => { void DesktopMenu.popup([
+              { label: t("Refresh"), disabled: !activeSource(), onSelect: refreshSource },
+              { label: t("Fetch"), disabled: !currentDetails()?.remoteNames.length, onSelect: () => { const root = selectedPath(); if (root) void performRepositoryAction({ kind: "fetch" }, root); } },
+              ...(activeSource()?.kind === "directory" ? [{ label: t("Rescan repositories"), onSelect: rescanSource }] : []),
+              { type: "separator" },
+              { label: t("Manage repositories…"), onSelect: () => presentation.set({ kind: "review", auxiliary: "repositories" }) },
+              { label: t("Clone repository…"), onSelect: () => setupClone.set(true) },
+              { label: t("Settings"), onSelect: () => settingsOpen.set(true) },
+            ]); }} />
         </View>
-        {isScanning() && !picking() ? (
-          <View class="px-3 pb-2"><LoadingStatus
-            testID="source-loading"
-            label={loadingMessage()}
-            path={loadingPath()}
-            hint={
-              sourceLoad().kind === "scanning"
-                ? t("Large directories may take a moment.")
-                : undefined
-            }
-          /></View>
-        ) : null}
-        {(() => {
-          const scan = backgroundScan();
-          if (scan.kind !== "running") return null;
-          return <View testID="background-scan" class="flex-row items-center gap-2 px-3 pb-2">
-            <View class="min-w-0 flex-1"><LoadingStatus label={t(scan.discovering ? "Scanning in background · {count} repositories" : "Refreshing cached repositories · {count} repositories", { count: scan.found })} /></View>
-            <IconButton icon="stop" testID="stop-scan" label={t("Stop scanning")} compact onPress={stopBackgroundScan} />
-          </View>;
-        })()}
         {(() => { const notice = scanNotice(); return notice ? <Text class="px-3 pb-2 text-[11px] text-muted-foreground">{t(notice)}</Text> : null; })()}
         {sourceError() ? (
           <Text testID="library-error" class="px-3 pb-2 text-[12px] text-destructive">
@@ -1244,82 +1482,38 @@ function App() {
 
       <View class="min-h-0 flex-1 flex-row border-t border-border">
         <View testID="review-navigation-rail" class={presentation().kind === "focus" ? "hidden" : "w-[42px] shrink-0 items-center gap-1 border-r border-border bg-chrome py-1"}>
-          <IconButton ref={node => { fileOpener = node; }} icon="nested" testID="changes-tab" label={t("Changes")}
-            selected={repositoryTab() === "changes"} disabled={!hasRepositories()} onPress={() => openTask("changes")} />
-          <IconButton icon="file" testID="files-tab" label={t("Files")}
-            selected={repositoryTab() === "files"} disabled={!hasRepositories()} onPress={() => openTask("files")} />
-          <IconButton icon="history" testID="history-tab" label={t("History")}
-            selected={repositoryTab() === "history"} disabled={!hasRepositories()} onPress={() => openTask("history")} />
+          <IconButton ref={node => { fileOpener = node; }} icon="nested" testID="changes-tab" label={t("Changes")} hint={reviewTabHint("Changes")}
+            selected={repositoryTab() === "changes" && !gitNavigationVisible() && !repositoryNavigationVisible()} disabled={!hasRepositories() || isScanning() || isOperating()} onPress={() => openTask("changes")} />
+          <IconButton icon="file" testID="files-tab" label={t("Files")} hint={reviewTabHint("Files")}
+            selected={repositoryTab() === "files" && !gitNavigationVisible() && !repositoryNavigationVisible()} disabled={!hasRepositories() || isScanning() || isOperating()} onPress={() => openTask("files")} />
+          <IconButton icon="history" testID="history-tab" label={t("History")} hint={reviewTabHint("History")}
+            selected={repositoryTab() === "history" && !gitNavigationVisible() && !repositoryNavigationVisible()} disabled={!hasRepositories() || isScanning() || isOperating()} onPress={() => openTask("history")} />
           <View class="my-1 h-px w-5 bg-border" />
-          <IconButton icon="worktree" testID="open-git-tools" label={t("Git actions")} disabled={!currentDetails() || isScanning() || isOperating()}
-            onPress={() => { const root = selectedPath(); if (root) void showTools(root); }} />
+          <IconButton ref={node => { gitOpener = node; }} icon="worktree" testID="open-git-tools" label={t("Branches and Stash")} hint={gitToolsHint()} selected={gitNavigationVisible()} disabled={!currentDetails() || isScanning() || isOperating()}
+            onPress={() => toggleNavigation("git")} />
           <View class="min-h-0 flex-1" />
           <IconButton icon="settings" testID="open-settings" label={t("Settings")} hint={t("Settings (⌘,)")} onPress={() => settingsOpen.set(true)} />
         </View>
         <View class="min-h-0 min-w-0 flex-1">
           {(() => {
             const operation = operationState();
-            return operation.kind === "running" ? <View testID="review-operation" class="px-3 py-1"><LoadingStatus label={t(operation.label) + "…"} /></View>
-              : operation.kind === "failed" ? <Text testID="review-operation-error" class="px-3 py-1 text-[11px] text-destructive">{operation.message}</Text>
-              : null;
+            return operation.kind === "failed" ? <Text testID="review-operation-error" class="px-3 py-1 text-[11px] text-destructive">{operation.message}</Text> : null;
           })()}
-          {detailState().kind === "loading" && !fileNavigationVisible() ? <View class="px-3 py-1"><LoadingStatus label={t("Reading repository")} /></View> : null}
           {detailState().kind === "failed" ? <Text testID="review-detail-error" class="px-3 py-1 text-[11px] text-destructive">{(detailState() as Extract<DetailState, { kind: "failed" }>).message}</Text> : null}
           <GitOperationBanner context={gitContext()} disabled={isScanning() || isOperating()}
             onRequest={request => { const root = selectedPath(); if (root) requestWorkflow(request, root); }} />
-          <View onLayout={bounds => canvasSize.set({ width: bounds.size.width, height: bounds.size.height })} style={{ flexDirection: "row-reverse" }} class="relative min-h-0 min-w-0 flex-1 bg-background">
-            <View testID="review-canvas" class="relative min-h-0 min-w-0 flex-1">
-              <ReviewFileRibbon entries={ribbonEntries()} selection={ribbonSelection()}
-                visible={presentation().kind === "review" && repositoryTab() === "changes" && hasRepositories()}
-                disabled={isScanning() || isOperating() || !currentDetails()} navigationOpen={fileNavigationVisible()}
-                onToggleNavigation={() => toggleNavigation("files")} onSelect={(path, staged) => { void selectFileDiff(path, staged); }} />
-              <View class="relative min-h-0 min-w-0 flex-1">
-              <View class="absolute right-2 top-0 z-10 h-[34px] w-32 items-end justify-center">
-                <Button ref={node => { focusOpener = node; }} testID="toggle-review-focus" accessibilityLabel={t(presentation().kind === "focus" ? "Restore navigation" : "Focus review")}
-                  selected={presentation().kind === "focus"} onPress={toggleFocus} class="h-6 max-w-32 flex-row items-center gap-1 px-1.5 hover:bg-muted/50 selected:bg-muted/50">
-                  <Icon name="focus" size={14} muted />
-                  <Text numberOfLines={1} class="min-w-0 text-[10px] text-muted-foreground">{t(presentation().kind === "focus" ? "Exit focus" : "Focus")}</Text>
-                </Button>
-              </View>
-              {hasRepositories() ? (
-                <>
-                  <RetainedPane active={repositoryTab() === "changes"}><DiffPane diff={diffState()} /></RetainedPane>
-                  <RetainedPane active={repositoryTab() === "files"}><FilePreviewPane state={previewState()} /></RetainedPane>
-                  <RetainedPane active={repositoryTab() === "history"}>
-                    {(() => {
-                      const root = selectedPath();
-                      const id = selectedHistoryCommit();
-                      return root && id ? <CommitReviewPane onWorkflow={(request) => requestWorkflow(request, root)} panelSizes={panelLayout.sizes()} onPanelResize={panelLayout.resize}
-                        disabled={isScanning() || isOperating()} repositoryPath={root} commitId={id}
-                        initialFilePath={selectedHistoryFile()} onFileSelection={(path) => {
-                          if (selectedPath() === root && selectedHistoryCommit() === id) {
-                            selectedHistoryFile.set(path); rememberCurrentSession();
-                          }
-                        }} onBack={() => changeRepositoryTab("changes")} />
-                        : <View class="flex-1 items-center justify-center p-4"><Text class="text-[12px] text-muted-foreground">{t("Select a commit to review its files and diff.")}</Text></View>;
-                    })()}
-                  </RetainedPane>
-                </>
-              ) : (
-                <WelcomePane
-                  busy={isScanning() || backgroundScan().kind === "running"}
-                  loadingMessage={backgroundScan().kind === "running" ? t("Scanning nested repositories…") : loadingMessage()}
-                  emptyDirectory={scanState().kind === "ready" && inventoryComplete() && backgroundScan().kind !== "running"}
-                  onChoose={(kind) => {
-                    void chooseSource(kind);
-                  }}
-                  onEnterPath={enterPath}
-                />
-              )}
-              </View>
-            </View>
-            <View testID="repository-drawer" class={repositoryNavigationVisible() ? "relative min-h-0 shrink-0 overflow-hidden border-r border-border bg-chrome" : "hidden"}
-              style={{ width: Math.min(panelLayout.sizes().sidebar, Math.max(PANEL_LIMITS.sidebar.min, canvasSize().width - 320)) + 8 }}>
+          <View onLayout={bounds => {
+            const previous = canvasSize();
+            if (previous.width !== bounds.size.width || previous.height !== bounds.size.height) canvasSize.set({ width: bounds.size.width, height: bounds.size.height });
+          }} class="relative min-h-0 min-w-0 flex-1 bg-background">
+          <ResizablePanelGroup axis="horizontal" class="min-h-0 min-w-0 flex-1" handleClass={panelHandleClass()} handleThumbClass={panelGripClass()} handleAccessibilityLabel={t("Resize sidebar")}>
+
+            <ResizablePanel testID="repository-drawer" fixed visible={repositoryNavigationVisible()}
+              size={Math.min(panelLayout.sizes().sidebar, Math.max(PANEL_LIMITS.sidebar.min, canvasSize().width - 328))}
+              minSize={PANEL_LIMITS.sidebar.min} maxSize={Math.max(PANEL_LIMITS.sidebar.min, Math.min(PANEL_LIMITS.sidebar.max, canvasSize().width - 328))}
+              onResize={size => panelLayout.resize("sidebar", size)} class="min-h-0 overflow-hidden bg-chrome">
               <View class="h-8 flex-row items-center justify-between border-b border-border px-2"><Text class="text-[11px] text-muted-foreground">{t("Repositories")}</Text>
                 <IconButton icon="stop" compact label={t("Close navigation")} testID="close-repository-drawer" onPress={() => toggleNavigation("repositories")} /></View>
-              <ResizablePanelGroup axis="horizontal" class="min-h-0 flex-1" style={{ width: Math.min(PANEL_LIMITS.sidebar.max + 8, canvasSize().width * .9) }} handleClass={panelHandleClass()} handleThumbClass={panelGripClass()} handleAccessibilityLabel={t("Resize sidebar")}>
-                <ResizablePanel fixed visible={repositoryNavigationVisible()} size={Math.min(panelLayout.sizes().sidebar, Math.max(PANEL_LIMITS.sidebar.min, canvasSize().width - 320))} minSize={PANEL_LIMITS.sidebar.min} maxSize={Math.max(PANEL_LIMITS.sidebar.min, Math.min(PANEL_LIMITS.sidebar.max, canvasSize().width - 320))}
-                  onResize={size => panelLayout.resize("sidebar", size)} class="min-h-0">
                   <RepositoryPane
                     onTools={(root) => { void showTools(root); }} onSetup={(clone) => setupClone.set(clone)}
                     panelSizes={panelLayout.sizes()} onPanelResize={panelLayout.resize}
@@ -1347,21 +1541,13 @@ function App() {
                     onModeChange={onDisplayModeChange}
                     onSelect={(path) => { void selectRepository(path); }}
                   />
-                </ResizablePanel>
-                <ResizablePanel minSize={8} class="min-h-0" />
-              </ResizablePanelGroup>
-            </View>
-            <View testID="file-drawer" class={fileNavigationVisible() && hasRepositories() ? "relative min-h-0 shrink-0 overflow-hidden border-r border-border bg-background" : "hidden"}
-              style={{ width: Math.min(panelLayout.sizes().navigation, Math.max(PANEL_LIMITS.navigation.min, canvasSize().width - 320)) + 8 }}>
-              <View class="h-8 flex-row items-center border-b border-border bg-surface-muted px-2">
-                <Tabs class="min-w-0 flex-1 flex-row items-center gap-3">
-                  <Tab selected={repositoryTab() === "changes"} onPress={() => changeRepositoryTab("changes")} class={"group h-8 justify-center border-b border-transparent " + accentClasses().tab}>
-                    <Text class="text-[11px] text-muted-foreground group-selected:text-foreground">{t("Changes")}</Text></Tab>
-                  <Tab selected={repositoryTab() === "files"} onPress={() => changeRepositoryTab("files")} class={"group h-8 justify-center border-b border-transparent " + accentClasses().tab}>
-                    <Text class="text-[11px] text-muted-foreground group-selected:text-foreground">{t("Files")}</Text></Tab>
-                  <Tab selected={repositoryTab() === "history"} onPress={() => changeRepositoryTab("history")} class={"group h-8 justify-center border-b border-transparent " + accentClasses().tab}>
-                    <Text class="text-[11px] text-muted-foreground group-selected:text-foreground">{t("History")}</Text></Tab>
-                </Tabs>
+            </ResizablePanel>
+            <ResizablePanel testID="file-drawer" fixed visible={fileNavigationVisible() && hasRepositories()}
+              size={Math.min(panelLayout.sizes().navigation, Math.max(PANEL_LIMITS.navigation.min, canvasSize().width - 328))}
+              minSize={PANEL_LIMITS.navigation.min} maxSize={Math.max(PANEL_LIMITS.navigation.min, Math.min(PANEL_LIMITS.navigation.max, canvasSize().width - 328))}
+              onResize={size => panelLayout.resize("navigation", size)} class="min-h-0 overflow-hidden bg-background">
+              <View class={repositoryTab() === "files" && currentDetails() ? "hidden" : "h-8 flex-row items-center border-b border-border bg-surface-muted px-2"}>
+                <Text class="min-w-0 flex-1 text-[11px] font-medium text-foreground">{t(repositoryTab() === "changes" ? "Changes" : repositoryTab() === "files" ? "Files" : "History")}</Text>
                 {repositoryTab() === "changes" ? <IconButton icon={preferences().changeView === "tree" ? "flat" : "nested"} compact testID="toggle-changed-file-view"
                   label={t(preferences().changeView === "tree" ? "View changes as list" : "View changes as tree")}
                   onPress={() => {
@@ -1371,17 +1557,14 @@ function App() {
                   }} /> : null}
                 <IconButton icon="stop" compact label={t("Close navigation")} testID="close-file-drawer" onPress={() => toggleNavigation("files")} />
               </View>
-              <ResizablePanelGroup axis="horizontal" class="min-h-0 flex-1" style={{ width: Math.min(PANEL_LIMITS.navigation.max + 8, canvasSize().width * .9) }} handleClass={panelHandleClass()} handleThumbClass={panelGripClass()} handleAccessibilityLabel={t("Resize review panes")}>
-                <ResizablePanel fixed visible={fileNavigationVisible()} size={Math.min(panelLayout.sizes().navigation, Math.max(PANEL_LIMITS.navigation.min, canvasSize().width - 320))} minSize={PANEL_LIMITS.navigation.min} maxSize={Math.max(PANEL_LIMITS.navigation.min, Math.min(PANEL_LIMITS.navigation.max, canvasSize().width - 320))}
-                  onResize={size => panelLayout.resize("navigation", size)} class="min-h-0">
-                  <ChangesPane onWorkflow={requestWorkflow} onOpenEditor={openEditor} revision={repositoryRevision()}
+                  <ChangesPane onCloseNavigation={() => toggleNavigation("files")} onWorkflow={requestWorkflow} onOpenEditor={openEditor} revision={repositoryRevision()}
+                    commitMessage={commitMessage()} onCommitMessageChange={onCommitMessageChange} onCommit={root => commit(root)}
+                    canCommit={canCommit()} onComposerReady={registerComposer}
                     panelSizes={panelLayout.sizes()} onPanelResize={panelLayout.resize}
-                    disabled={isScanning()}
+                    disabled={isScanning() || isOperating()}
                     details={detailState()}
                     operation={operationState()}
                     diff={diffState()}
-                    branchName={branchName()}
-                    onBranchNameChange={onBranchNameChange}
                     tab={repositoryTab()}
                     onTabChange={changeRepositoryTab}
                     selectedCommitId={selectedHistoryCommit()}
@@ -1396,35 +1579,22 @@ function App() {
                       void performRepositoryAction(action, repositoryPath);
                     }}
                   />
-                </ResizablePanel>
-                <ResizablePanel minSize={8} class="min-h-0" />
-              </ResizablePanelGroup>
-            </View>
-            <View testID="commit-composer" class={composerVisible() && hasRepositories() ? "absolute left-0 right-0 bottom-0 z-30 overflow-hidden border-t border-border bg-surface-muted" : "hidden"}
-              style={{ left: repositoryNavigationVisible()
-                ? Math.min(panelLayout.sizes().sidebar, Math.max(PANEL_LIMITS.sidebar.min, canvasSize().width - 320)) + 8
-                : fileNavigationVisible() ? Math.min(panelLayout.sizes().navigation, Math.max(PANEL_LIMITS.navigation.min, canvasSize().width - 320)) + 8 : 0,
-                height: Math.min(panelLayout.sizes().composer + 40, canvasSize().height) }}>
-              <ResizablePanelGroup axis="vertical" class="absolute left-0 right-0 bottom-0" style={{ height: Math.min(PANEL_LIMITS.composer.max + 40, canvasSize().height) }}
-                handleClass={panelHandleClass()} handleThumbClass={panelGripClass()} handleAccessibilityLabel={t("Resize commit composer")}>
-                <ResizablePanel minSize={8} />
-                <ResizablePanel fixed size={Math.min(panelLayout.sizes().composer + 32, canvasSize().height - 8)} minSize={PANEL_LIMITS.composer.min + 32} maxSize={PANEL_LIMITS.composer.max + 32}
-                  onResize={size => panelLayout.resize("composer", size - 32)} class="min-h-0 bg-surface-muted">
-                  <View class="h-7 flex-row items-center justify-between px-3"><Text class="text-[11px] text-muted-foreground">{t("Commit composer")}</Text>
-                    <IconButton icon="stop" compact testID="close-commit-composer" label={t("Close composer")} onPress={toggleComposer} /></View>
-                  <View class="min-h-0 flex-1 gap-1.5 px-3 pb-2">
-                    <Input ref={node => { composerInput = node; }} testID="commit-message" value={commitMessage()} onChange={onCommitMessageChange} multiline submitBehavior="newline"
-                      disabled={isScanning() || isOperating()} placeholder={t("Commit message")} accessibilityLabel={t("Commit message")} onSubmit={commit}
-                      class={"min-h-0 flex-1 rounded bg-subtle-input px-2 py-1 text-[12px] text-foreground focus:bg-background " + accentClasses().focus} />
-                    <View class="flex-row items-center justify-between gap-2">
-                      <Text class="text-[11px] text-muted-foreground">{t(stagedFileCount() === 1 ? "{count} staged file" : "{count} staged files", { count: stagedFileCount() })}</Text>
-                      <Button testID="commit-staged" disabled={!canCommit()} onPress={commit} class={"h-7 justify-center rounded px-3 disabled:opacity-35 " + accentClasses().fill}>
-                        <Text class={"text-[11px] " + accentClasses().foreground}>{t("Commit staged")}</Text></Button>
-                    </View>
-                  </View>
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </View>
+            </ResizablePanel>
+            <ResizablePanel testID="git-sidebar" fixed visible={gitNavigationVisible() && hasRepositories()}
+              size={Math.min(panelLayout.sizes().git, Math.max(PANEL_LIMITS.git.min, canvasSize().width - 328))}
+              minSize={PANEL_LIMITS.git.min} maxSize={Math.max(PANEL_LIMITS.git.min, Math.min(PANEL_LIMITS.git.max, canvasSize().width - 328))}
+              onResize={size => panelLayout.resize("git", size)} class="min-h-0 overflow-hidden bg-surface-muted">
+                  {(() => {
+                    const root = selectedPath();
+                    return root ? <GitPane repositoryPath={root} context={gitContext()} loading={contextLoading()} disabled={isScanning() || isOperating()}
+                      request={workflowForm()?.root === root ? workflowForm()!.request : null}
+                      onClose={() => toggleNavigation("git")} onRefresh={value => { if (value === selectedPath()) void refreshGitContext(value); }}
+                      onRequest={requestWorkflow} onSwitch={(branch, value) => { void performRepositoryAction({ kind: "switchBranch", branchName: branch }, value); }}
+                      onCancelRequest={() => workflowForm.set(null)} onPrepare={prepareWorkflow} onExecute={executeWorkflow} /> : null;
+                  })()}
+            </ResizablePanel>
+            <ResizablePanel minSize={320} class="min-h-0 min-w-0 bg-background">{editorContent}</ResizablePanel>
+          </ResizablePanelGroup>
           </View>
         </View>
       </View>
@@ -1435,25 +1605,15 @@ function App() {
           class="min-w-0 flex-1 text-[11px] text-muted-foreground"
         >
           {currentDetails()
-            ? t("Unstaged") + " " + currentDetails()!.changes.filter(file => file.unstaged || file.untracked).length + "  ·  " + t("Staged") + " " + stagedFileCount()
+            ? fileNavigationVisible() && repositoryTab() === "changes" ? null
+              : t("Unstaged") + " " + currentDetails()!.changes.filter(file => file.unstaged || file.untracked).length + "  ·  " + t("Staged") + " " + stagedFileCount()
             : activeSource()?.path ?? t("Add a repository or workspace directory to get started")}
         </Text>
         {(() => { const operation = operationState(); return operation.kind === "succeeded" ? <Text numberOfLines={1} class="max-w-72 text-[10px] text-success">{t(operation.message)}</Text> : null; })()}
-        <Button ref={node => { composerOpener = node; }} testID="toggle-commit-composer" accessibilityLabel={t("Commit composer")}
-          disabled={!hasRepositories()} onPress={toggleComposer} class="h-6 shrink-0 justify-center px-1 hover:bg-muted/40">
-          <Text class="text-[10px] text-muted-foreground">{t("Commit message")}</Text>
-        </Button>
-        <Text class="shrink-0 text-[10px] text-muted-foreground">⌘⇧F</Text>
       </View>
       {importDialog()}
       {setupClone() !== null ? <RepositorySetupDialog clone={setupClone()!} onClose={() => setupClone.set(null)}
         onCreated={(path) => addSource("repository", path)} /> : null}
-      {toolsRoot() ? <RepositoryToolsDialog repositoryPath={toolsRoot()!} onClose={() => toolsRoot.set(null)}
-        onRequest={(request) => requestWorkflow(request, toolsRoot()!)} onSwitch={(branch) => {
-          const root = toolsRoot(); toolsRoot.set(null); if (root) void performRepositoryAction({ kind: "switchBranch", branchName: branch }, root);
-        }} /> : null}
-      {workflowForm() ? <WorkflowDialog repositoryPath={workflowForm()!.root} request={workflowForm()!.request}
-        onCancel={() => workflowForm.set(null)} onExecute={executeWorkflow} /> : null}
       {settingsOpen() ? (
         <SettingsDialog
           error={settingsError()}

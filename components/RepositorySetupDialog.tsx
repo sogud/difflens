@@ -4,13 +4,14 @@ import { Workspace } from "difflens/native";
 import { t } from "../i18n";
 import { accentClasses } from "../appearance";
 import { errorMessage } from "../diagnostics";
-import { LoadingStatus } from "./LoadingStatus";
+import { watchUiActivity } from "../ui-activity";
 
 export function RepositorySetupDialog(props: { clone: boolean; onClose: () => void; onCreated: (path: string) => Promise<string | null> }) {
   const parent = signal("");
   const name = signal("");
   const url = signal("");
   const busy = signal(false);
+  watchUiActivity(() => busy() ? { kind: "operation", label: t(props.clone ? "Clone repository…" : "Create repository…"), detail: parent() } : null);
   const error = signal<string | null>(null);
   async function browse() {
     if (busy()) return;
@@ -42,7 +43,6 @@ export function RepositorySetupDialog(props: { clone: boolean; onClose: () => vo
       <Input testID="setup-name" value={name()} disabled={busy()} onChange={value=>name.set(value)} placeholder={t("Directory name")} accessibilityLabel={t("Directory name")}
         class={"h-7 rounded bg-subtle-input px-2 text-[12px] text-foreground "+accentClasses().focus}/>
       <Text class="text-[11px] text-muted-foreground">{t("A new directory will be created; existing directories are not replaced.")}</Text>
-      {busy()?<LoadingStatus label={t("Git operation")+"…"}/>:null}
       {error()?<Text class="text-[12px] text-destructive">{error()}</Text>:null}
       <View class="flex-row justify-end gap-2"><Button disabled={busy()} onPress={props.onClose} class="h-7 justify-center rounded px-3 hover:bg-muted"><Text class="text-[12px] text-muted-foreground">{t("Cancel")}</Text></Button>
         <Button testID="setup-create" disabled={busy()||!parent().trim()||!name().trim()||(props.clone&&!url().trim())} onPress={()=>{void create();}}

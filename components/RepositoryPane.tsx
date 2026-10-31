@@ -5,9 +5,10 @@ import { t } from "../i18n";
 import { Icon } from "./Icon";
 import { IconButton } from "./IconButton";
 import { accentClasses } from "../appearance";
+import { DENSITY } from "../ui-density";
 import { panelGripClass, panelHandleClass, PANEL_LIMITS, type PanelSizes, type ResizePanel } from "../panel-layout";
 import { WorktreeList } from "./WorktreeList";
-import { computed, effect, Scroll, signal, Text, View } from "nsh";
+import { computed, effect, List, Scroll, signal, Text, View } from "nsh";
 import { Input } from "nsh/base";
 import { Button, Menu, MenuItem, MenuSeparator, ResizablePanel, ResizablePanelGroup, Tab, Tabs } from "nsh/base";
 import type { RepositoryNode, WorktreeInfo } from "difflens/native";
@@ -61,6 +62,7 @@ function RepositoryRow(props: {
   repository: RepositoryNode;
   depth: number;
   nested: boolean;
+  virtual?: boolean;
   collapsed: string[];
   searching: boolean;
   selectedPath: string | null;
@@ -113,7 +115,7 @@ function RepositoryRow(props: {
             name: props.repository.name,
           })}
           onPress={() => props.onSelect(props.repository.path)}
-          class="h-10 min-w-0 justify-center rounded px-2 text-left hover:bg-muted/70 active:bg-muted selected:bg-accent"
+          class={DENSITY.detailedRow + " min-w-0 justify-center rounded px-2 text-left hover:bg-muted/70 active:bg-muted selected:bg-accent"}
         >
           <View class="flex-row items-center gap-1.5">
             <View class="min-w-0 flex-1 gap-0.5">
@@ -144,7 +146,7 @@ function RepositoryRow(props: {
         </Button>
         </View>
       </View>
-      {hasChildren() && !collapsed()
+      {!props.virtual && hasChildren() && !collapsed()
         ? props.repository.children.map((repository) => (
             <RepositoryRow
               {...props}
@@ -196,6 +198,19 @@ export function RepositoryPane(
         repository.name.toLowerCase().includes(query) ||
         repository.path.toLowerCase().includes(query),
     );
+  });
+  const repositoryRows = computed(() => {
+    const rows: { repository: RepositoryNode; depth: number }[] = [];
+    const searching = search().trim().length > 0;
+    const hidden = new Set(collapsed());
+    function append(nodes: RepositoryNode[], depth: number) {
+      for (const repository of nodes) {
+        rows.push({ repository, depth });
+        if (props.mode === "nested" && (searching || !hidden.has(repository.path))) append(repository.children, depth + 1);
+      }
+    }
+    append(visibleRepositories(), 0);
+    return rows;
   });
   const repositoryCount = computed(
     () => flattenRepositories(props.repositories).length,
@@ -292,7 +307,7 @@ export function RepositoryPane(
                     { path: source.path },
                   )}
                   onPress={() => props.onOpenSource(source)}
-                  class="h-11 min-w-0 justify-center gap-0.5 rounded px-2 text-left hover:bg-muted/70 active:bg-muted selected:bg-accent"
+                  class={DENSITY.detailedRow + " min-w-0 justify-center gap-0.5 rounded px-2 text-left hover:bg-muted/70 active:bg-muted selected:bg-accent"}
                 >
                   <Text
                     numberOfLines={1}
@@ -398,31 +413,14 @@ export function RepositoryPane(
           </Tabs>
         </View>
       </View>
-      <Scroll class="min-h-0 flex-1">
-        <View class="gap-0.5 px-1 py-1">
-          {visibleRepositories().length === 0 ? (
-            <Text class="px-2 py-2 text-[12px] text-muted-foreground">
-              {props.repositories.length === 0
-                ? t("No repositories in this view.")
-                : t("No repositories match this filter.")}
-            </Text>
-          ) : (
-            visibleRepositories().map((repository) => (
-              <RepositoryRow
-                repository={repository}
-                depth={0}
-                nested={props.mode === "nested"}
-                collapsed={collapsed()}
-                searching={search().trim().length > 0}
-                selectedPath={props.selectedPath}
-                disabled={props.disabled}
-                onSelect={props.onSelect}
-                onToggle={toggle} onReveal={props.onRevealSource} onTools={props.onTools}
-              />
-            ))
-          )}
-        </View>
-      </Scroll>
+      <List each={repositoryRows()} keyExtractor={row => row.repository.path} estimatedItemSize={DENSITY.detailedRowSize} class="min-h-0 flex-1" contentClass="px-1 py-1"
+        initialScrollIndex={Math.max(0, repositoryRows().findIndex(row => row.repository.path === props.selectedPath))}
+        empty={<Text class="px-2 py-2 text-[12px] text-muted-foreground">{t(props.repositories.length === 0 ? "No repositories in this view." : "No repositories match this filter.")}</Text>}>
+        {item => <RepositoryRow repository={item().repository} depth={item().depth} virtual
+          nested={props.mode === "nested"} collapsed={collapsed()} searching={search().trim().length > 0}
+          selectedPath={props.selectedPath} disabled={props.disabled} onSelect={props.onSelect}
+          onToggle={toggle} onReveal={props.onRevealSource} onTools={props.onTools} />}
+      </List>
       </ResizablePanel>
       <ResizablePanel visible={props.worktrees.length > 0} fixed
         size={worktreesExpanded() ? props.panelSizes.worktrees : 32}

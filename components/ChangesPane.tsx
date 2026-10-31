@@ -4,17 +4,17 @@ import { copyText } from "../context-menu";
 import { t } from "../i18n";
 import { Icon } from "./Icon";
 import { IconButton } from "./IconButton";
-import { accentClasses } from "../appearance";
+import { CommitComposer } from "./CommitComposer";
 import { panelGripClass, panelHandleClass, PANEL_LIMITS, type PanelSizes, type ResizePanel } from "../panel-layout";
 import { FileBrowser } from "./FileBrowser";
-import { computed, effect, List, signal, Text, untracked, View } from "nsh";
+import { computed, effect, List, signal, Text, untracked, View, type YNode } from "nsh";
 import { preferences } from "../preferences";
 import { changedFileRows } from "../changed-file-tree";
-import { Input, Button, Menu, MenuItem, MenuSeparator, ResizablePanel, ResizablePanelGroup } from "nsh/base";
-import { LoadingStatus } from "./LoadingStatus";
+import { Button, ResizablePanel, ResizablePanelGroup } from "nsh/base";
 import { workflowRequest, type RequestWorkflow } from "../git-workflows";
 import { RetainedPane } from "./RetainedPane";
 import { HistoryPane } from "./HistoryPane";
+import { DENSITY } from "../ui-density";
 import type { HistoryNavigation } from "../repository-session";
 import type {
   ChangedFile,
@@ -55,7 +55,7 @@ function ChangedFileRow(props: ChangedFileRowProps) {
         { type: "separator" },
         { label: t("Copy file path"), onSelect: () => copyText(props.file.path) },
         ...(props.onOpenEditor ? [{ label: t("Open in editor"), disabled: props.disabled, onSelect: () => props.onOpenEditor?.(props.file.path) }] : []),
-        ...(props.file.conflicted && props.onWorkflow ? [{ label: t("Mark resolved…"), disabled: props.disabled, onSelect: () => props.onWorkflow?.(workflowRequest("resolve", props.file.path)) }] : []),
+        ...(props.file.conflicted && props.onWorkflow ? [{ label: t("Mark resolved…").replace(/…$/, ""), disabled: props.disabled, onSelect: () => props.onWorkflow?.(workflowRequest("resolve", props.file.path)) }] : []),
       ], event.pagePosition);
     }}>
       <View class="min-w-0 flex-1" tooltip={<Hint text={displayPath()} />}>
@@ -142,17 +142,17 @@ function FileSection(props: {
         ) : null}
       </View>
       <List testID={"changed-file-list-" + props.section} each={rows()}
-        keyExtractor={row => row.key} estimatedItemSize={32} class="min-h-0 flex-1"
+        keyExtractor={row => row.key} estimatedItemSize={DENSITY.compactRowSize} class="min-h-0 flex-1"
         initialScrollIndex={Math.max(0, rows().findIndex(row => row.kind === "file" && row.file.path === props.selectedPath && props.selectedStaged === (props.section === "staged")))}
         empty={<Text class="px-3 py-2 text-[11px] text-muted-foreground">{t("No files")}</Text>}>
         {(item) => {
           const folder = computed(() => { const row = item(); return row.kind === "folder" ? row : null; });
           const file = computed(() => { const row = item(); return row.kind === "file" ? row.file : null; });
-          return <View class="h-8" style={{ paddingLeft: item().depth * 12 }}>
+          return <View class={DENSITY.compactRow} style={{ paddingLeft: item().depth * 12 }}>
             {folder() ? <Button
               accessibilityLabel={t("Toggle folder {path}", { path: folder()!.path }) + " · " + t(props.section === "staged" ? "Staged" : "Unstaged")}
               onPress={() => { const current = folder(); if (current) toggleFolder(current.path); }}
-              class="h-8 flex-row items-center gap-1.5 px-2 hover:bg-muted/60">
+              class={DENSITY.compactRow + " flex-row items-center gap-1.5 px-2 hover:bg-muted/60"}>
               <Icon name={folder()!.expanded ? "chevronDown" : "chevronRight"} size={11} muted />
               <Icon name="folder" size={14} muted />
               <Text numberOfLines={1} class="min-w-0 flex-1 text-[12px] text-foreground">{folder()!.label}</Text>
@@ -169,6 +169,7 @@ function FileSection(props: {
 }
 
 function RepositoryChanges(props: {
+  onCloseNavigation: () => void;
   onWorkflow: (request: GitOperationRequest, root: string) => void;
   onOpenEditor: (path: string, root: string) => void;
   revision: number;
@@ -178,8 +179,11 @@ function RepositoryChanges(props: {
   details: RepositoryDetails;
   operation: OperationState;
   diff: DiffState;
-  branchName: string;
-  onBranchNameChange: (value: string) => void;
+  commitMessage: string;
+  onCommitMessageChange: (value: string) => void;
+  canCommit: boolean;
+  onCommit: (root: string) => void;
+  onComposerReady: (node: YNode, root: string) => void;
   onSelectFile: (path: string, staged: boolean) => void;
   onPreviewFile: (path: string) => void;
   previewedFile: string | null;
@@ -215,100 +219,8 @@ function RepositoryChanges(props: {
 
   return (
     <View class="min-h-0 flex-1 flex-col">
-      <View class="hidden">
-        <View class="flex-row items-center gap-1.5">
-          <Menu
-            offset={4}
-            margin={8}
-            popupClass="min-w-52 gap-1 rounded-md border border-border bg-popover p-1"
-            trigger={
-              <View
-                disabled={busy()}
-                role="button"
-                focusable
-                accessibilityLabel={t("Choose local branch")}
-                class="flex-row items-center gap-1.5 rounded bg-accent/60 px-2 py-1 hover:bg-accent active:bg-accent disabled:opacity-35"
-              >
-                <Icon name="worktree" size={13} muted />
-                <Text class="font-mono text-[11px] text-foreground">
-                  {(props.details.branchName ?? props.details.headLabel) + " ▾"}
-                </Text>
-              </View>
-            }
-          >
-            {props.details.branches.length === 0 ? (
-              <MenuItem disabled>
-                <Text class="text-[12px] text-muted-foreground">
-                  {t("No local branches")}
-                </Text>
-              </MenuItem>
-            ) : (
-              props.details.branches.map((branch) => (
-                <MenuItem
-                  class="rounded px-2 py-1 active:bg-accent"
-                  disabled={busy() || branch === props.details.branchName}
-                  onSelect={() =>
-                    onAction({ kind: "switchBranch", branchName: branch })
-                  }
-                >
-                  <Text class="text-[12px] text-foreground">
-                    {(branch === props.details.branchName ? "✓  " : "") +
-                      branch}
-                  </Text>
-                </MenuItem>
-              ))
-            )}
-            <MenuSeparator class="my-1 h-px bg-border" />
-            <MenuItem disabled>
-              <Text class="text-[11px] text-muted-foreground">
-                {props.details.hasUpstream
-                  ? props.details.upstream
-                  : t("No upstream branch")}
-              </Text>
-            </MenuItem>
-          </Menu>
-          <Text class="min-w-0 flex-1 text-[11px] text-muted-foreground">
-            {props.details.ahead > 0 || props.details.behind > 0
-              ? "↑ " +
-                String(props.details.ahead) +
-                "  ↓ " +
-                String(props.details.behind)
-              : props.details.hasUpstream
-                ? t("Up to date")
-                : t("No upstream")}
-          </Text>
-        </View>
-
-        <View class="flex-row gap-1">
-          <View class="min-w-0 flex-1 flex-row items-center gap-1">
-            <Input
-              value={props.branchName}
-              onChange={props.onBranchNameChange}
-              disabled={busy()}
-              placeholder={t("New branch")}
-              accessibilityLabel={t("New branch name")}
-              class={"h-7 min-w-0 flex-1 rounded border border-transparent bg-subtle-input px-2 text-[11px] text-foreground focus:bg-background " + accentClasses().focus}
-            />
-            <Button
-              disabled={busy() || props.branchName.trim().length === 0}
-              onPress={() =>
-                onAction({
-                  kind: "createBranch",
-                  branchName: props.branchName.trim(),
-                })
-              }
-              class="rounded px-2 py-1 hover:bg-accent active:bg-accent disabled:opacity-35"
-            >
-              <Text class="text-[11px] text-muted-foreground">
-                {t("New")}
-              </Text>
-            </Button>
-          </View>
-        </View>
-      </View>
-
       <RetainedPane active={activeTab() === "files"}>
-        <FileBrowser onOpenEditor={onOpenEditor} revision={props.revision} repository={props.details} selectedPath={props.previewedFile} disabled={busy()} onPreview={props.onPreviewFile} />
+        <FileBrowser onClose={props.onCloseNavigation} onOpenEditor={onOpenEditor} revision={props.revision} repository={props.details} selectedPath={props.previewedFile} disabled={busy()} onPreview={props.onPreviewFile} />
       </RetainedPane>
       <RetainedPane active={activeTab() === "history"}>
         <HistoryPane onWorkflow={onWorkflow} active={activeTab() === "history"} revision={props.revision} repositoryPath={props.details.path} branch={props.details.branchName ?? "detached"}
@@ -318,16 +230,23 @@ function RepositoryChanges(props: {
           onWorkingChanges={() => props.onTabChange("changes")} />
       </RetainedPane>
       <RetainedPane active={activeTab() === "changes"}>
+        <ResizablePanelGroup axis="vertical" class="min-h-0 flex-1" handleClass={panelHandleClass()} handleThumbClass={panelGripClass()} handleAccessibilityLabel={t("Resize commit composer")}>
+          <ResizablePanel fixed size={props.panelSizes.composer} minSize={PANEL_LIMITS.composer.min} maxSize={PANEL_LIMITS.composer.max}
+            onResize={size => props.onPanelResize("composer", size)} class="min-h-0">
+            <CommitComposer repositoryPath={repositoryPath} message={props.commitMessage} stagedCount={stagedFiles().length}
+              disabled={busy()} canCommit={props.canCommit} onChange={props.onCommitMessageChange} onCommit={props.onCommit} onReady={props.onComposerReady} />
+          </ResizablePanel>
+          <ResizablePanel minSize={160} class="min-h-0">
         <ResizablePanelGroup axis="vertical" class="min-h-0 flex-1" handleClass={panelHandleClass()} handleThumbClass={panelGripClass()}
           handleAccessibilityLabel={t("Resize staged and unstaged files")}>
-          <ResizablePanel minSize={80} class="min-h-0">
+          <ResizablePanel visible={unstagedFiles().length > 0 || stagedFiles().length === 0} minSize={80} class="min-h-0">
             <FileSection title={t("Unstaged")} files={unstagedFiles()} section="unstaged"
               selectedPath={selectedFile()?.path} selectedStaged={selectedFile()?.staged ?? false}
               busy={busy()} onSelectFile={props.onSelectFile} onAction={onAction}
               onWorkflow={onWorkflow} onOpenEditor={onOpenEditor}
               onStageAll={() => onAction({ kind: "stageAll" })} />
           </ResizablePanel>
-          <ResizablePanel fixed size={props.panelSizes.staged} minSize={PANEL_LIMITS.staged.min} maxSize={PANEL_LIMITS.staged.max}
+          <ResizablePanel fixed={unstagedFiles().length > 0} visible={stagedFiles().length > 0} size={unstagedFiles().length > 0 ? props.panelSizes.staged : undefined} minSize={PANEL_LIMITS.staged.min} maxSize={PANEL_LIMITS.staged.max}
             onResize={(size) => props.onPanelResize("staged", size)} class="min-h-0">
             <FileSection title={t("Staged")} files={stagedFiles()} section="staged"
               selectedPath={selectedFile()?.path} selectedStaged={selectedFile()?.staged ?? false}
@@ -336,12 +255,15 @@ function RepositoryChanges(props: {
               onUnstageAll={() => onWorkflow(workflowRequest("unstageAll"))} />
           </ResizablePanel>
         </ResizablePanelGroup>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </RetainedPane>
     </View>
   );
 }
 
 export function ChangesPane(props: {
+  onCloseNavigation: () => void;
   onWorkflow: (request: GitOperationRequest, root: string) => void;
   onOpenEditor: (path: string, root: string) => void;
   revision: number;
@@ -351,8 +273,11 @@ export function ChangesPane(props: {
   details: DetailState;
   operation: OperationState;
   diff: DiffState;
-  branchName: string;
-  onBranchNameChange: (value: string) => void;
+  commitMessage: string;
+  onCommitMessageChange: (value: string) => void;
+  canCommit: boolean;
+  onCommit: (root: string) => void;
+  onComposerReady: (node: YNode, root: string) => void;
   onSelectFile: (path: string, staged: boolean) => void;
   onPreviewFile: (path: string) => void;
   previewedFile: string | null;
@@ -392,14 +317,15 @@ export function ChangesPane(props: {
       );
     }
     return (
-      <RepositoryChanges onWorkflow={props.onWorkflow} onOpenEditor={props.onOpenEditor} revision={props.revision}
+      <RepositoryChanges onCloseNavigation={props.onCloseNavigation} onWorkflow={props.onWorkflow} onOpenEditor={props.onOpenEditor} revision={props.revision}
         panelSizes={props.panelSizes} onPanelResize={props.onPanelResize}
         disabled={props.disabled}
         details={props.details.details}
         operation={props.operation}
         diff={props.diff}
-        branchName={props.branchName}
-        onBranchNameChange={props.onBranchNameChange}
+        commitMessage={props.commitMessage}
+        onCommitMessageChange={props.onCommitMessageChange}
+        canCommit={props.canCommit} onCommit={props.onCommit} onComposerReady={props.onComposerReady}
         onSelectFile={props.onSelectFile}
         onPreviewFile={props.onPreviewFile}
         previewedFile={props.previewedFile}
@@ -427,18 +353,11 @@ function EmptyPanel(props: {
   message: string;
   loading?: boolean;
 }) {
+  if (props.loading) return <View class="flex-1" />;
   return (
     <View class="flex-1 items-center justify-center gap-1.5 p-4">
-      {props.loading ? (
-        <LoadingStatus label={props.title} />
-      ) : (
-        <Text class="text-[12px] font-medium text-foreground">
-          {props.title}
-        </Text>
-      )}
-      <Text class="max-w-72 text-center text-[11px] text-muted-foreground">
-        {props.message}
-      </Text>
+      <Text class="text-[12px] font-medium text-foreground">{props.title}</Text>
+      <Text class="max-w-72 text-center text-[11px] text-muted-foreground">{props.message}</Text>
     </View>
   );
 }

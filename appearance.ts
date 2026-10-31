@@ -13,6 +13,7 @@ export function accentClasses() {
     foreground: "text-" + name + "-foreground",
     text: "text-" + name,
     tab: "selected:border-" + name,
+    border: "border-" + name,
     focus: "focus:border-" + name,
     hover: "group-hover:bg-" + name + "/60",
     pressed: "group-active:bg-" + name,
