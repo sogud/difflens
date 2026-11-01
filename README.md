@@ -8,7 +8,7 @@ See [design boundaries](docs/design.md), [architecture](docs/architecture.md) an
 
 The current Beta is [v0.1.1-beta.1, build 19](https://github.com/sogud/difflens/releases/tag/v0.1.1-beta.1), for **Apple Silicon Macs running macOS 14 or later**. Download `DiffLens-0.1.1-beta.1-macos-arm64.zip`, quit any running copy, extract it and move `DiffLens.app` into Applications. Git must be available on PATH.
 
-The app is ad hoc signed and is not notarized; macOS may require approval in **System Settings → Privacy & Security**. Build 18 needs this first Beta installed manually. The Beta then checks for newer signed releases at startup and every six hours; Settings and **DiffLens → Check for Updates…** offer download and confirmed restart/install. Current private releases require an authenticated GitHub CLI with repository access. App updates preserve repository sources, drafts and preferences. See [Beta updates](docs/updates.md) for authentication, verification, recovery and publishing details.
+The app is ad hoc signed and is not notarized; macOS may require approval in **System Settings → Privacy & Security**. Build 18 needs this first Beta installed manually. The Beta then checks for newer signed releases at startup and every six hours; Settings and **DiffLens → Check for Updates…** offer download and confirmed restart/install. Public releases are downloadable without a repository login. The updater uses the local GitHub CLI when installed, or system HTTPS when it is absent; an installed CLI must have a usable API session. Private mirrors require authenticated access. App updates preserve repository sources, drafts and preferences. See [Beta updates](docs/updates.md) for authentication, verification, recovery and publishing details.
 
 ## Run
 

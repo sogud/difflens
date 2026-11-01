@@ -6,9 +6,11 @@ An available update appears in the title bar. The user chooses **Download update
 
 The updater is available only for the installed Apple Silicon macOS app in `/Applications` or `~/Applications`. Version 0.1.0/build18 has no updater and needs one manual installation of the first updater-enabled Beta. Development hosts do not install updates.
 
-## Private releases
+## Release access
 
-The repository is currently private. Updates use an installed GitHub CLI (`gh`) authenticated with access to this repository. DiffLens invokes scoped `gh api` requests; it never extracts a token or stores one in settings, a URL or a log. If `gh` is absent, system HTTPS requests can access public releases; private releases report the authentication requirement. Normal Git work does not require `gh`.
+The release repository is public. Downloads do not require repository membership. When GitHub CLI (`gh`) is installed, the updater uses its API session; otherwise system HTTPS requests access public releases. If the installed CLI has an unusable session, update controls report the access error. A private mirror requires `gh` authenticated with repository access.
+
+DiffLens invokes scoped release requests; it never extracts a token or stores one in settings, a URL or a log. Normal Git work does not require `gh`.
 
 ## Verification and replacement
 
