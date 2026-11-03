@@ -4,6 +4,29 @@ A compact desktop Git client for reviewing code changes across nested repositori
 
 See [design boundaries](docs/design.md), [architecture](docs/architecture.md) and [contributing](CONTRIBUTING.md).
 
+## Install
+
+Apple Silicon, macOS 14+. Run in Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sogud/difflens/main/install.sh | sh
+```
+
+The script downloads the newest release (including Betas), verifies its SHA-256 checksum and installs `DiffLens.app` into `/Applications` (or `~/Applications`), where in-app updates keep working. Quit DiffLens first. Install a specific version with `curl -fsSL … | VERSION=v0.1.1-beta.1 sh`; uninstall with `curl -fsSL … | sh -s -- --uninstall` (repositories and preferences are kept). You can [read the script](install.sh) first.
+
+<details>
+<summary>Installed from the browser and macOS says “Apple could not verify…”</summary>
+
+DiffLens is ad hoc signed but not notarized, so a browser download is blocked on first launch. Either run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/DiffLens.app
+```
+
+or open the app once, then go to **System Settings → Privacy & Security**, find *“DiffLens” was blocked…* and click **Open Anyway**, then confirm with your password.
+
+</details>
+
 ## Download
 
 The current Beta is [v0.1.1-beta.1, build 19](https://github.com/sogud/difflens/releases/tag/v0.1.1-beta.1), for **Apple Silicon Macs running macOS 14 or later**. Download `DiffLens-0.1.1-beta.1-macos-arm64.zip`, quit any running copy, extract it and move `DiffLens.app` into Applications. Git must be available on PATH.
