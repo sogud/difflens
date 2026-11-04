@@ -7,7 +7,6 @@ import type { DiffState } from "../ui-types";
 import { IconButton } from "./IconButton";
 import { preferences, updatePreferences } from "../preferences";
 import { errorMessage } from "../diagnostics";
-import { watchUiActivity } from "../ui-activity";
 import { ReviewHeader, type ReviewFocus } from "./ReviewHeader";
 
 type DisplayedDiff = Extract<DiffState, { kind: "ready" }> & { title?: string };
@@ -19,7 +18,6 @@ export function DiffPane(props: { diff: DiffState; title?: string; focus?: Revie
   const activeHunk = signal<number | null>(null);
   const preferenceError = signal<string | null>(null);
   const pending = () => props.diff.kind === "loading";
-  watchUiActivity(() => props.diff.kind === "loading" ? { kind: "diff", label: t("Loading diff…"), detail: props.diff.filePath } : null);
   effect(() => {
     const next = props.diff;
     const title = props.title;
@@ -31,6 +29,10 @@ export function DiffPane(props: { diff: DiffState; title?: string; focus?: Revie
           if (!previous || previous.filePath !== next.filePath || previous.staged !== next.staged || previous.patch !== next.patch) activeHunk.set(null);
         }
         if (next.patch.includes("\n@@")) visited.set(true);
+      } else if (next.kind === "loading" && next.cachedPatch !== undefined) {
+        displayed.set({ kind: "ready", filePath: next.filePath, staged: next.staged, patch: next.cachedPatch, title });
+        activeHunk.set(null);
+        if (next.cachedPatch.includes("\n@@")) visited.set(true);
       } else if (next.kind === "idle" || next.kind === "failed") {
         displayed.set(null);
         activeHunk.set(null);
@@ -56,15 +58,16 @@ export function DiffPane(props: { diff: DiffState; title?: string; focus?: Revie
     const separator = current.filePath.lastIndexOf("/");
     return { name: current.filePath.slice(separator + 1), directory: separator >= 0 ? current.filePath.slice(0, separator) : "" };
   });
+  const patch = computed(() => displayed()?.patch ?? "");
   const overview = computed(() => {
     let added = 0;
     let deleted = 0;
     let rows = 0;
     const hunks: { index: number; row: number; removed: boolean }[] = [];
-    const current = displayed();
-    if (current) {
+    const currentPatch = patch();
+    if (currentPatch) {
       let inHunk = false;
-      for (const line of current.patch.split("\n")) {
+      for (const line of currentPatch.split("\n")) {
         if (line.startsWith("diff --git ")) inHunk = false;
         if (line.startsWith("@@")) {
           hunks.push({ index: hunks.length, row: rows, removed: false });
@@ -119,7 +122,7 @@ export function DiffPane(props: { diff: DiffState; title?: string; focus?: Revie
       <View class="absolute right-3 top-0 bottom-0 z-10 w-2">
         {overview().markers.map(hunk => <Button disabled={pending()} accessibilityLabel={t("Change {index} of {total}", { index: hunk.index + 1, total: overview().count })}
           onPress={() => goToHunk(hunk.index)} class={"absolute right-px w-[5px] opacity-65 hover:opacity-100 " + (hunk.removed ? "bg-destructive" : "bg-success")}
-          style={{ top: 4 + hunk.row / Math.max(1, overview().rows) * 88 + "%", height: 10 }} />)}
+          style={{ top: `${4 + hunk.row / Math.max(1, overview().rows) * 88}%`, height: 10 }} />)}
       </View>
     </View>
   </View>;

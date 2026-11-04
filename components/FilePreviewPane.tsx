@@ -3,7 +3,6 @@ import { Editor } from "nsh/base";
 import type { FilePreviewState } from "../ui-types";
 import { CODE_FONT, CODE_FONT_SIZE, CODE_LINE_HEIGHT } from "../code-style";
 import { t } from "../i18n";
-import { watchUiActivity } from "../ui-activity";
 import { ReviewHeader, type ReviewFocus } from "./ReviewHeader";
 
 type ReadyPreview = Extract<FilePreviewState, { kind: "ready" }>;
@@ -17,12 +16,11 @@ export function FilePreviewPane(props: { state: FilePreviewState | null; focus?:
       if (next?.kind === "ready") {
         displayed.set(next);
         if (next.file.kind === "text") visited.set(true);
+      } else if (next?.kind === "loading" && next.cachedFile) {
+        displayed.set({ kind: "ready", file: next.cachedFile });
+        if (next.cachedFile.kind === "text") visited.set(true);
       } else if (!next || next.kind === "failed") displayed.set(null);
     });
-  });
-  watchUiActivity(() => {
-    const state = props.state;
-    return state?.kind === "loading" ? { kind: "preview", label: t("Loading file…"), detail: state.path } : null;
   });
   const path = () => {
     const state = props.state;

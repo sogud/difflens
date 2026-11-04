@@ -5,6 +5,7 @@ import { preferences, updatePreferences } from "../preferences";
 import {
   checkForUpdates, downloadUpdate, refreshUpdateStatus, updateStatus,
 } from "../update-controller";
+import { SettingsRow } from "./SettingsRow";
 
 export function UpdateSettings(props: {
   focused?: boolean;
@@ -78,21 +79,19 @@ export function UpdateSettings(props: {
   }
 
   return (
-    <View testID="update-settings" class="gap-2 border-t border-border pt-3">
+    <View testID="update-settings" class="gap-1.5 pt-1">
       <Text class="text-[11px] font-semibold text-muted-foreground">{t("Updates")}</Text>
-      <View class="flex-row items-center justify-between gap-2">
-        <Text class="text-[11px] text-muted-foreground">{t("Current version")}</Text>
-        <Text testID="update-current-version" class="text-[11px] text-foreground">{versionLabel()}</Text>
-      </View>
-      <View class="flex-row items-center justify-between gap-2">
-        <Text class="text-[11px] text-muted-foreground">{t("Channel")}</Text>
-        <Text testID="update-channel" class="text-[11px] text-foreground">{channelLabel()}</Text>
-      </View>
+      <SettingsRow label={t("Current version")}>
+        <View class="flex-row items-center gap-1">
+          <Text testID="update-current-version" class="text-[11px] text-foreground">{versionLabel()}</Text>
+          <Text testID="update-channel" accessibilityLabel={t("Channel") + " " + channelLabel()} class="text-[11px] text-muted-foreground">{"· " + channelLabel()}</Text>
+        </View>
+      </SettingsRow>
       {!updateStatus().supported ? (
         <Text class="text-[11px] text-muted-foreground">{t("Automatic updates are not available in this build.")}</Text>
       ) : null}
-      <View class="flex-row items-center justify-between gap-3">
-        <Text class="text-[11px] text-muted-foreground">{t("Automatically check for updates")}</Text>
+      <SettingsRow label={t("Automatically check for updates")}>
+        <View class="items-end">
         <Switch
           testID="automatic-updates"
           checked={preferences().automaticUpdates}
@@ -103,7 +102,8 @@ export function UpdateSettings(props: {
           trackClass="h-4 w-7 rounded-full bg-muted checked:bg-accent disabled:opacity-40"
           thumbClass="size-3 rounded-full bg-background checked:translate-x-3.5"
         />
-      </View>
+        </View>
+      </SettingsRow>
       {(() => {
         const status = updateStatus();
         switch (status.phase) {
@@ -164,15 +164,15 @@ export function UpdateSettings(props: {
             return null;
         }
       })()}
-      <View class="flex-row flex-wrap items-center gap-2">
+      <View class="flex-row flex-wrap items-center gap-1">
         {phase() === "available" ? (
           <Button
             testID="download-update"
             disabled={!updateStatus().supported}
             onPress={() => { void downloadUpdate(); }}
-            class="h-7 justify-center rounded bg-secondary px-3 hover:bg-accent active:bg-accent disabled:opacity-35"
+            class="h-6 justify-center rounded px-1.5 hover:bg-muted active:bg-accent disabled:opacity-35"
           >
-            <Text class="text-[12px] font-medium text-secondary-foreground">{t("Download update")}</Text>
+            <Text class="text-[11px] font-medium text-foreground">{t("Download update")}</Text>
           </Button>
         ) : null}
         {phase() === "ready" ? (
@@ -180,9 +180,9 @@ export function UpdateSettings(props: {
             testID="restart-and-install"
             disabled={installing()}
             onPress={() => { void startInstall(); }}
-            class="h-7 justify-center rounded bg-secondary px-3 hover:bg-accent active:bg-accent disabled:opacity-35"
+            class="h-6 justify-center rounded px-1.5 hover:bg-muted active:bg-accent disabled:opacity-35"
           >
-            <Text class="text-[12px] font-medium text-secondary-foreground">{t("Restart and install")}</Text>
+            <Text class="text-[11px] font-medium text-foreground">{t("Restart and install")}</Text>
           </Button>
         ) : null}
         {phase() !== "available" && phase() !== "ready" ? (
@@ -191,9 +191,9 @@ export function UpdateSettings(props: {
             ref={(node) => { checkTarget = node; }}
             disabled={!updateStatus().supported || busy()}
             onPress={() => { void checkForUpdates(); }}
-            class="h-7 justify-center rounded bg-secondary px-3 hover:bg-accent active:bg-accent disabled:opacity-35"
+            class="h-6 justify-center rounded px-1.5 hover:bg-muted active:bg-accent disabled:opacity-35"
           >
-            <Text class="text-[12px] font-medium text-secondary-foreground">
+            <Text class="text-[11px] font-medium text-foreground">
               {t(phase() === "checking" ? "Checking for updates…" : "Check for updates")}
             </Text>
           </Button>
@@ -204,9 +204,9 @@ export function UpdateSettings(props: {
             role="link"
             accessibilityLabel={t("Open release page")}
             onPress={openReleasePage}
-            class="h-7 justify-center rounded px-1 hover:opacity-80"
+            class="h-6 justify-center rounded px-1.5 hover:opacity-80"
           >
-            <Text class="text-[11px] text-accent">{t("Open release page")}</Text>
+            <Text class="text-[11px] text-primary">{t("Open release page")}</Text>
           </Button>
         ) : null}
       </View>

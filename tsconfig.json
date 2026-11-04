@@ -1,4 +1,6 @@
 {
   "extends": "./.nsh/tsconfig.json",
-  "include": ["**/*.ts", "**/*.tsx"]
+  "compilerOptions": { "resolveJsonModule": true },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", ".nsh", "target", "tmp"]
 }

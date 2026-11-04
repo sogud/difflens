@@ -2,5 +2,4 @@
 target/
 __pycache__/
 /data/research/gitkraken-12.6.1/
-/tmp/gitkraken-12.6.1/
-/tmp/content-first/
+/tmp/

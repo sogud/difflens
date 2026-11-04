@@ -2,6 +2,9 @@ import { computed, Text, View, type YNode } from "nsh";
 import { Button, Input } from "nsh/base";
 import { t } from "../i18n";
 import { accentClasses } from "../appearance";
+import type { RepositoryDetails } from "difflens/native";
+import type { PushFeedback } from "../git-sync";
+import { BranchSyncControl } from "./BranchSyncControl";
 import { Hint } from "./Hint";
 
 export function CommitComposer(props: {
@@ -10,6 +13,10 @@ export function CommitComposer(props: {
   stagedCount: number;
   disabled: boolean;
   canCommit: boolean;
+  details: RepositoryDetails;
+  pushFeedback: PushFeedback;
+  onPush: (root: string) => void;
+  onRefresh: (root: string) => void;
   onChange: (value: string) => void;
   onCommit: (repositoryPath: string) => void;
   onReady: (node: YNode, repositoryPath: string) => void;
@@ -22,17 +29,21 @@ export function CommitComposer(props: {
     return null;
   });
   const hint = computed(() => t("Commit staged") + " (⌘↵)" + (reason() ? "\n" + reason() : ""));
-  return <View testID="commit-composer" class="min-h-0 flex-1 gap-1.5 border-b border-border bg-surface-muted p-2">
+  return <View testID="commit-composer" class="min-h-0 flex-1 gap-1.5 bg-surface-muted p-2">
     <Input ref={node => props.onReady(node, props.repositoryPath)} testID="commit-message" value={props.message} onChange={props.onChange}
       multiline submitBehavior="newline" disabled={props.disabled} placeholder={t("Commit message")} accessibilityLabel={t("Commit message")}
       class={"min-h-0 flex-1 rounded bg-subtle-input px-2 py-1.5 text-[12px] text-foreground focus:bg-background " + accentClasses().focus} />
-    <View tooltip={<Hint text={hint()} />}>
-      <Button testID="commit-staged" disabled={!props.canCommit} onPress={() => props.onCommit(props.repositoryPath)}
-        accessibilityLabel={t("Commit staged") + (reason() ? " · " + reason() : "")}
-        class={"h-7 w-full flex-row items-center justify-center gap-2 rounded disabled:opacity-35 " + accentClasses().fill}>
-        <Text class={"text-[12px] " + accentClasses().foreground}>{t("Commit")}</Text>
-        {props.stagedCount > 0 ? <Text class={"text-[11px] " + accentClasses().foreground}>{props.stagedCount}</Text> : null}
-      </Button>
+    <View class="h-7 flex-row items-center gap-1.5">
+      <View class="shrink-0" tooltip={<Hint text={hint()} />}>
+        <Button testID="commit-staged" disabled={!props.canCommit} onPress={() => props.onCommit(props.repositoryPath)}
+          accessibilityLabel={t("Commit staged") + (reason() ? " · " + reason() : "")}
+          class={"h-7 flex-row items-center justify-center gap-1.5 rounded px-2 disabled:opacity-35 " + accentClasses().fill}>
+          <Text class={"text-[12px] " + accentClasses().foreground}>{t("Commit")}</Text>
+          {props.stagedCount > 0 ? <Text class={"text-[11px] " + accentClasses().foreground}>{props.stagedCount}</Text> : null}
+        </Button>
+      </View>
+      <BranchSyncControl details={props.details} feedback={props.pushFeedback} disabled={props.disabled}
+        onPush={() => props.onPush(props.repositoryPath)} onRefresh={() => props.onRefresh(props.repositoryPath)} />
     </View>
   </View>;
 }

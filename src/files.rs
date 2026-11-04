@@ -52,7 +52,7 @@ pub(super) fn read_directory(
     requested_root: PathBuf,
     relative: String,
 ) -> Result<Vec<FileEntry>, String> {
-    let root = super::git::validate_repository_root(&requested_root)?;
+    let root = super::read_scope::validate(&requested_root)?;
     let path = scoped_path(&root, &relative)?;
     let mut entries = Vec::new();
     for entry in fs::read_dir(path).map_err(|error| error.to_string())? {
@@ -90,7 +90,7 @@ pub(super) fn read_directory(
 
 pub(super) fn read_file(requested_root: PathBuf, relative: String) -> Result<FilePreview, String> {
     use std::io::Read;
-    let root = super::git::validate_repository_root(&requested_root)?;
+    let root = super::read_scope::validate(&requested_root)?;
     let path = scoped_path(&root, &relative)?;
     // Do not block a preview worker on pipes or other special files.
     if !fs::metadata(&path)

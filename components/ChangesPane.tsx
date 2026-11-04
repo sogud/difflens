@@ -14,6 +14,7 @@ import { Button, ResizablePanel, ResizablePanelGroup } from "nsh/base";
 import { workflowRequest, type RequestWorkflow } from "../git-workflows";
 import { RetainedPane } from "./RetainedPane";
 import { HistoryPane } from "./HistoryPane";
+import type { PushFeedback } from "../git-sync";
 import { DENSITY } from "../ui-density";
 import type { HistoryNavigation } from "../repository-session";
 import type {
@@ -128,15 +129,15 @@ function FileSection(props: {
   });
   return (
     <View class="min-h-0 flex-1">
-      <View class="flex-row items-center justify-between bg-surface-muted px-3 py-1.5">
+      <View class="h-8 shrink-0 flex-row items-center justify-between bg-surface-muted px-2">
         <Text class="text-[11px] font-semibold text-foreground">
           {props.title + " · " + String(props.files.length)}
         </Text>
         {props.onUnstageAll ? <Button disabled={props.busy || props.files.length === 0} onPress={props.onUnstageAll}
-          class="h-6 justify-center rounded px-1.5 hover:bg-accent disabled:opacity-35"><Text class="text-[11px] text-muted-foreground">{t("Unstage all")}</Text></Button> : null}
+          class="h-6 justify-center rounded px-1 hover:bg-accent disabled:opacity-35"><Text class="text-[11px] text-muted-foreground">{t("Unstage all")}</Text></Button> : null}
         {props.onStageAll ? (
           <Button disabled={props.busy || props.files.length === 0} onPress={props.onStageAll}
-            class="rounded px-1.5 py-0.5 hover:bg-accent active:bg-accent disabled:opacity-35">
+            class="h-6 justify-center rounded px-1 hover:bg-accent active:bg-accent disabled:opacity-35">
             <Text class="text-[11px] text-muted-foreground">{t("Stage all")}</Text>
           </Button>
         ) : null}
@@ -177,6 +178,8 @@ function RepositoryChanges(props: {
   onPanelResize: ResizePanel;
   disabled: boolean;
   details: RepositoryDetails;
+  pushFeedback: PushFeedback;
+  onRefresh: (root: string) => void;
   operation: OperationState;
   diff: DiffState;
   commitMessage: string;
@@ -233,7 +236,9 @@ function RepositoryChanges(props: {
         <ResizablePanelGroup axis="vertical" class="min-h-0 flex-1" handleClass={panelHandleClass()} handleThumbClass={panelGripClass()} handleAccessibilityLabel={t("Resize commit composer")}>
           <ResizablePanel fixed size={props.panelSizes.composer} minSize={PANEL_LIMITS.composer.min} maxSize={PANEL_LIMITS.composer.max}
             onResize={size => props.onPanelResize("composer", size)} class="min-h-0">
-            <CommitComposer repositoryPath={repositoryPath} message={props.commitMessage} stagedCount={stagedFiles().length}
+            <CommitComposer repositoryPath={repositoryPath} details={props.details} pushFeedback={props.pushFeedback}
+              onPush={root => props.onAction({ kind: "push" }, root)} onRefresh={props.onRefresh}
+              message={props.commitMessage} stagedCount={stagedFiles().length}
               disabled={busy()} canCommit={props.canCommit} onChange={props.onCommitMessageChange} onCommit={props.onCommit} onReady={props.onComposerReady} />
           </ResizablePanel>
           <ResizablePanel minSize={160} class="min-h-0">
@@ -271,6 +276,8 @@ export function ChangesPane(props: {
   onPanelResize: ResizePanel;
   disabled: boolean;
   details: DetailState;
+  pushFeedback: PushFeedback;
+  onRefresh: (root: string) => void;
   operation: OperationState;
   diff: DiffState;
   commitMessage: string;
@@ -321,6 +328,7 @@ export function ChangesPane(props: {
         panelSizes={props.panelSizes} onPanelResize={props.onPanelResize}
         disabled={props.disabled}
         details={props.details.details}
+        pushFeedback={props.pushFeedback} onRefresh={props.onRefresh}
         operation={props.operation}
         diff={props.diff}
         commitMessage={props.commitMessage}

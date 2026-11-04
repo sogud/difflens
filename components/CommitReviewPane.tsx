@@ -107,6 +107,10 @@ export function CommitReviewPane(props: {
             {item => {
               const file = computed(item);
               const path = () => file().oldPath ? file().oldPath + " → " + file().path : file().path;
+              const selected = () => {
+                const current = diff();
+                return current.kind !== "idle" && current.filePath === file().path;
+              };
               return <View tooltip={<Hint text={path()} />} onContextMenu={event => {
                 const value = file(); const commit = displayed(); const root = props.repositoryPath; const request = generation;
                 void Menu.popup([
@@ -115,7 +119,7 @@ export function CommitReviewPane(props: {
                   { label: t("Back to working changes"), disabled: props.disabled, onSelect: props.onBack },
                 ], event.pagePosition);
               }}><Button testID={"commit-file:" + file().path} accessibilityLabel={t("Show diff for {path}", { path: file().path })}
-                disabled={props.disabled || pending()} selected={diff().kind !== "idle" && diff().filePath === file().path}
+                disabled={props.disabled || pending()} selected={selected()}
                 onPress={() => { const commit = displayed(); if (commit) void selectFile(file(), commit, props.repositoryPath, generation); }}
                 class="h-7 flex-row items-center gap-2 px-3 hover:bg-muted selected:bg-accent">
                 <Text class="w-5 font-mono text-[10px] text-muted-foreground">{file().status}</Text>

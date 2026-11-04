@@ -1,4 +1,5 @@
 import { locale, signal, Storage } from "nsh";
+import { COLOR_THEMES, THEME_ACCENTS, type ColorTheme } from "./themes";
 
 export const PREFERENCES_STORAGE_KEY = "difflens.settings.v1";
 export const LANGUAGE_NAMES = {
@@ -7,7 +8,7 @@ export const LANGUAGE_NAMES = {
 } as const;
 export type Language = keyof typeof LANGUAGE_NAMES;
 export const LANGUAGES = Object.keys(LANGUAGE_NAMES) as Language[];
-export const ACCENTS = ["blue", "teal", "green", "rose", "amber"] as const;
+export const ACCENTS = THEME_ACCENTS;
 export type Accent = typeof ACCENTS[number];
 export type Appearance = "system" | "light" | "dark";
 export type ChangeView = "tree" | "list";
@@ -15,6 +16,7 @@ export type DiffLayout = "split" | "unified";
 export type Preferences = {
   language: Language;
   appearance: Appearance;
+  colorTheme: ColorTheme;
   accent: Accent;
   changeView: ChangeView;
   diffLayout: DiffLayout;
@@ -31,6 +33,7 @@ export function languageForLocale(value: string): Language {
 const state = signal<Preferences>({
   language: languageForLocale(locale()),
   appearance: "system",
+  colorTheme: "graphite",
   accent: "blue",
   changeView: "tree",
   diffLayout: "split",
@@ -51,11 +54,13 @@ export async function restorePreferences(): Promise<void> {
     throw new InvalidPreferencesError();
   }
   const appearance = "appearance" in saved ? saved.appearance : "system";
+  const colorTheme = "colorTheme" in saved ? saved.colorTheme : "graphite";
   const accent = "accent" in saved ? saved.accent : "blue";
   const changeView = "changeView" in saved ? saved.changeView : "tree";
   const diffLayout = "diffLayout" in saved ? saved.diffLayout : "split";
   const automaticUpdates = "automaticUpdates" in saved ? saved.automaticUpdates : true;
   if (!(appearance === "system" || appearance === "light" || appearance === "dark") ||
+      typeof colorTheme !== "string" || !COLOR_THEMES.includes(colorTheme as ColorTheme) ||
       typeof accent !== "string" || !ACCENTS.includes(accent as Accent) ||
       !(changeView === "tree" || changeView === "list") ||
       !(diffLayout === "split" || diffLayout === "unified") ||
@@ -63,6 +68,7 @@ export async function restorePreferences(): Promise<void> {
   state.set({
     language: saved.language as Language,
     appearance,
+    colorTheme: colorTheme as ColorTheme,
     accent: accent as Accent,
     changeView,
     diffLayout,

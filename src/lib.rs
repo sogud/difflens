@@ -7,12 +7,13 @@ mod files;
 mod git;
 mod history;
 mod operations;
-pub mod updates;
 pub mod update_install;
-pub use updates::UpdateStatus;
+pub mod updates;
 pub use operations::{
     GitContext, GitOperationOutcome, GitOperationPlan, GitOperationRequest, GitReference, GitStash,
 };
+pub use updates::UpdateStatus;
+mod read_scope;
 mod repository_cache;
 mod scan_jobs;
 mod scan_rules;
@@ -351,6 +352,28 @@ impl Workspace {
         .await
     }
 
+    /// Reads only one contained repository's status for a directory overview.
+    pub async fn repository_changes(
+        directory_path: String,
+        repository_path: String,
+    ) -> Result<RepositoryChangeSnapshot, String> {
+        background("workspace.repository_changes", move || {
+            git::repository_changes(
+                PathBuf::from(directory_path),
+                PathBuf::from(repository_path),
+            )
+        })
+        .await
+    }
+
+    /// Pushes with Git acknowledgement separate from the following local refresh.
+    pub async fn push_with_outcome(repository_path: String) -> Result<PushOutcome, String> {
+        background("workspace.push_with_outcome", move || {
+            git::push_with_outcome(PathBuf::from(repository_path))
+        })
+        .await
+    }
+
     /// Pushes the current branch to its upstream, or configures origin for a new branch.
     pub async fn push(repository_path: String) -> Result<RepositoryDetails, String> {
         background("workspace.push", move || {
@@ -409,15 +432,25 @@ pub struct Updater;
 #[module]
 impl Updater {
     /// Reads update progress without starting network work.
-    pub fn state() -> UpdateStatus { updates::state() }
+    pub fn state() -> UpdateStatus {
+        updates::state()
+    }
     /// Checks signed releases in the configured update channel.
-    pub async fn check() -> Result<UpdateStatus, String> { background("updates.check", updates::check).await }
+    pub async fn check() -> Result<UpdateStatus, String> {
+        background("updates.check", updates::check).await
+    }
     /// Downloads and verifies the checked native offer.
-    pub async fn download() -> Result<UpdateStatus, String> { background("updates.download", updates::download).await }
+    pub async fn download() -> Result<UpdateStatus, String> {
+        background("updates.download", updates::download).await
+    }
     /// Stages the verified app and prepares an exit-watching installer.
-    pub async fn install() -> Result<(), String> { background("updates.install", updates::install).await }
+    pub async fn install() -> Result<(), String> {
+        background("updates.install", updates::install).await
+    }
     /// Acknowledges a restored first layout after an update launch.
-    pub async fn mark_healthy() -> Result<(), String> { background("updates.startup", update_install::mark_healthy).await }
+    pub async fn mark_healthy() -> Result<(), String> {
+        background("updates.startup", update_install::mark_healthy).await
+    }
 }
 
 async fn background<T, F>(name: &'static str, operation: F) -> Result<T, String>
@@ -462,6 +495,14 @@ pub struct RepositoryNode {
     pub cached: bool,
 }
 
+/// A successful push acknowledgement, with any local status-refresh failure kept separate.
+#[derive(Clone, Debug, JsObject)]
+pub struct PushOutcome {
+    pub branch_name: String,
+    pub details: Option<RepositoryDetails>,
+    pub refresh_error: Option<String>,
+}
+
 /// A selected repository's status and common local context.
 #[derive(Clone, Debug, JsObject)]
 pub struct RepositoryDetails {
@@ -473,11 +514,29 @@ pub struct RepositoryDetails {
     pub upstream: Option<String>,
     pub ahead: usize,
     pub behind: usize,
+    pub sync_known: bool,
     pub remote_names: Vec<String>,
     pub changes: Vec<ChangedFile>,
     pub branches: Vec<String>,
     pub history: Vec<CommitSummary>,
     pub worktrees: Vec<WorktreeInfo>,
+}
+
+/// Lightweight status for a repository inside the active directory.
+#[derive(Clone, Debug, JsObject)]
+pub struct RepositoryChangeSnapshot {
+    pub path: String,
+    pub head_label: String,
+    pub branch_name: Option<String>,
+    pub has_commits: bool,
+    pub has_upstream: bool,
+    pub upstream: Option<String>,
+    pub ahead: usize,
+    pub behind: usize,
+    pub sync_known: bool,
+    pub remote_names: Vec<String>,
+    pub changes: Vec<ChangedFile>,
+    pub total_files: usize,
 }
 
 /// One file record from Git's porcelain status.

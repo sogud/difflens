@@ -20,7 +20,7 @@ export type PanelSizes = Record<PanelName, number>;
 export type ResizePanel = (panel: PanelName, size: number) => void;
 export function panelHandleClass() {
   const accent = accentClasses();
-  return "bg-border " + accent.hover + " " + accent.pressed;
+  return "bg-border/40 " + accent.hover + " " + accent.pressed;
 }
 export function panelGripClass() {
   return "bg-transparent";

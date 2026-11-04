@@ -18,7 +18,7 @@ export function ReviewHeader(props: {
 }) {
   let release: (() => void) | undefined;
   cleanup(() => release?.());
-  return <View accessibilityLabel={props.label} class="h-[34px] shrink-0 flex-row items-center gap-2 border-b border-border bg-background px-3">
+  return <View accessibilityLabel={props.label} class="h-8 shrink-0 flex-row items-center gap-2 bg-background px-2">
     <View class="min-w-0 flex-1 flex-row gap-2" style={{ alignItems: "baseline" }}>{props.children}</View>
     <View class="shrink-0 flex-row items-center gap-1">
       {props.actions}

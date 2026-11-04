@@ -18,7 +18,7 @@ export type DetailState =
 
 export type DiffState =
   | { kind: "idle" }
-  | { kind: "loading"; filePath: string; staged: boolean }
+  | { kind: "loading"; filePath: string; staged: boolean; cachedPatch?: string }
   | { kind: "ready"; filePath: string; staged: boolean; patch: string }
   | { kind: "failed"; filePath: string; staged: boolean; message: string };
 
@@ -62,7 +62,7 @@ export interface ChangedFileRowProps {
 }
 
 export type FilePreviewState =
-  | { kind: "loading"; path: string }
+  | { kind: "loading"; path: string; cachedFile?: FilePreview }
   | { kind: "ready"; file: FilePreview }
   | { kind: "failed"; path: string; message: string };
 

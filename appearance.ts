@@ -1,8 +1,18 @@
-import { effect, setColorScheme } from "nsh";
+import { computed, effect, setColorScheme } from "nsh";
 import { preferences } from "./preferences";
+import { themeDefinition } from "./themes";
+
+const uiTheme = computed(() => JSON.stringify(
+  themeDefinition(preferences().colorTheme, preferences().accent),
+));
 
 export function applyAppearance() {
   effect(() => setColorScheme(preferences().appearance));
+}
+
+export function appearanceThemeProps(): { uiTheme: string } {
+  // NSH follows spread-property getters; keep the signal read inside that effect.
+  return { get uiTheme() { return uiTheme(); } };
 }
 
 /** Accent roles share semantic palette tokens; Git status colors stay separate. */

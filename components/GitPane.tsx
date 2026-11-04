@@ -18,6 +18,7 @@ const groups: { kind: Group; title: Message }[] = [
 ];
 
 export function GitPane(props: {
+  active: boolean;
   repositoryPath: string;
   context: GitContext | null;
   loading: boolean;
@@ -103,6 +104,14 @@ export function GitPane(props: {
     if (focusTimer !== undefined) clearTimeout(focusTimer);
     focusTimer = setTimeout(() => { focusTimer = undefined; filterInput?.focus(); }, 0);
   }
+  effect(() => {
+    const focus = props.active && !props.request;
+    void props.repositoryPath;
+    untracked(() => {
+      if (focus) focusFilter();
+      else if (focusTimer !== undefined) { clearTimeout(focusTimer); focusTimer = undefined; }
+    });
+  });
   async function executeWorkflow(plan: GitOperationPlan) {
     stashIdsBefore = plan.request.kind === "stashPush" && props.context
       ? new Set(props.context.stashes.map(stash => stash.id)) : null;
@@ -162,8 +171,12 @@ export function GitPane(props: {
     const stash = props.context?.stashes.find(value => "stash:" + value.id + value.reference === key);
     return stash ? { kind: "stash", key, value: stash } : null;
   });
+  const switchableBranch = computed(() => {
+    const row = selected();
+    return row?.kind === "reference" && row.value.kind === "local" && !row.value.current ? row.value.shortName : null;
+  });
   return <View testID="git-pane" class="min-h-0 flex-1 bg-surface-muted">
-    <View class="h-8 shrink-0 flex-row items-center gap-1 border-b border-border px-2">
+    <View class="h-8 shrink-0 flex-row items-center gap-1 px-2">
       <Text class="min-w-0 flex-1 text-[11px] font-medium text-foreground">{t("Branches and Stash")}</Text>
       <IconButton icon="plus" compact label={t("Create branch…")} disabled={props.disabled} onPress={() => props.onRequest(workflowRequest("createBranch"), props.repositoryPath)} />
       <IconButton icon="refresh" compact label={t("Refresh")} disabled={props.disabled || props.loading} onPress={() => props.onRefresh(props.repositoryPath)} />
@@ -196,12 +209,16 @@ export function GitPane(props: {
         </View>;
       }}
     </List>
-    {selected() && selected()!.kind !== "group" && !props.request ? <View class="shrink-0 gap-1 border-t border-border px-2 py-2">
+    {selected() && selected()!.kind !== "group" && !props.request ? <View class="shrink-0 gap-1 px-2 py-2">
       <Text numberOfLines={2} class="text-[11px] text-foreground">{(() => { const row = selected(); return row?.kind === "reference" ? row.value.name : row?.kind === "stash" ? row.value.message : ""; })()}</Text>
       <Text numberOfLines={1} class="font-mono text-[10px] text-muted-foreground">{(() => { const row = selected(); return row?.kind === "reference" || row?.kind === "stash" ? row.value.id : ""; })()}</Text>
-      <Button onPress={() => { const row = selected(); if (row) void Menu.popup(menu(row)); }} class="h-6 justify-center px-1 hover:bg-muted"><Text class="text-[11px] text-muted-foreground">{t("More actions")}</Text></Button>
+      <View class="flex-row items-center gap-1">
+        {switchableBranch() ? <Button disabled={props.disabled} onPress={() => { const name = switchableBranch(); if (name && !props.disabled) props.onSwitch(name, props.repositoryPath); }}
+          class="h-6 justify-center rounded px-1.5 hover:bg-muted disabled:opacity-35"><Text class="text-[11px] text-foreground">{t("Switch branch")}</Text></Button> : null}
+        <Button onPress={() => { const row = selected(); if (row) void Menu.popup(menu(row)); }} class="h-6 justify-center px-1 hover:bg-muted"><Text class="text-[11px] text-muted-foreground">{t("More actions")}</Text></Button>
+      </View>
     </View> : null}
-    <View class="shrink-0 flex-row flex-wrap gap-1 border-t border-border p-1.5">
+    <View class="shrink-0 flex-row flex-wrap gap-1 p-1.5">
       <Button disabled={props.disabled} onPress={() => props.onRequest(workflowRequest("tagCreate"), props.repositoryPath)} class="h-7 justify-center px-2 hover:bg-muted"><Text class="text-[11px] text-foreground">{t("Create tag…")}</Text></Button>
       <Button disabled={props.disabled} onPress={() => props.onRequest(workflowRequest("stashPush"), props.repositoryPath)} class="h-7 justify-center px-2 hover:bg-muted"><Text class="text-[11px] text-foreground">{t("Stash changes…")}</Text></Button>
     </View>

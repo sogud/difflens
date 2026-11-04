@@ -24,11 +24,11 @@ function fileName(path: string) {
 }
 
 function tabWidth(entry: ReviewFileEntry) {
-  let width = entry.staged ? 72 : 60;
+  let width = entry.staged ? 64 : 52;
   for (const character of fileName(entry.path)) {
     width += (character.codePointAt(0) ?? 0) > 0x2e80 ? 12 : 7;
   }
-  return Math.max(110, Math.min(244, width));
+  return Math.max(96, Math.min(244, width));
 }
 
 export function ReviewFileRibbon(props: {
@@ -38,8 +38,6 @@ export function ReviewFileRibbon(props: {
   selection: WorkingSelection | null;
   visible: boolean;
   disabled: boolean;
-  navigationOpen: boolean;
-  onToggleNavigation: () => void;
   onSelect: (path: string, staged: boolean) => void;
 }) {
   let list: YNode | undefined;
@@ -70,9 +68,7 @@ export function ReviewFileRibbon(props: {
     viewport.offset = 0;
     list?.scrollToOffset({ offset: 0, animated: false });
   });
-  return <View class={props.visible ? "h-8 shrink-0 flex-row items-center border-b border-border bg-surface-muted px-1" : "hidden"}>
-    <IconButton icon="nested" compact testID="toggle-file-drawer" label={t("File navigation")}
-      selected={props.navigationOpen} onPress={props.onToggleNavigation} />
+  return <View class={props.visible ? "h-8 shrink-0 flex-row items-center bg-surface-muted" : "hidden"}>
     <View class="relative h-8 min-w-0 flex-1 overflow-hidden" onLayout={bounds => stripWidth.set(bounds.size.width)}>
     {/* NSH 0.3 forces horizontal indicators on; their reserved edge sits below the clipped tab row. */}
     <List testID="review-file-ribbon" ref={node => { list = node; reveal(true); }} horizontal scrollbar={false}
@@ -103,7 +99,7 @@ export function ReviewFileRibbon(props: {
           }}>
           <Button testID={"ribbon:" + item().key} accessibilityLabel={label()} disabled={props.disabled}
             selected={selected()} onPress={() => { const entry = item(); props.onSelect(entry.path, entry.staged); }}
-            class="group h-7 min-w-0 flex-1 flex-row items-center gap-1.5 pl-2.5 pr-1 hover:bg-muted/50">
+            class="group h-7 min-w-0 flex-1 flex-row items-center gap-1.5 pl-2 pr-1 hover:bg-muted/50">
             <Text class={"text-[9px] font-mono " + (item().conflicted ? "text-destructive" : item().staged ? "text-success" : "text-status-modified")}>{item().statusLabel.trim()}</Text>
             <Text numberOfLines={1} class="min-w-0 flex-1 text-[11px] text-foreground">{fileName(item().path)}</Text>
             {item().staged ? <Text class="text-[9px] text-muted-foreground">✓</Text> : null}

@@ -102,7 +102,7 @@ export function FileBrowser(props: {
   }
 
   return <View testID="file-browser" class="min-h-0 flex-1">
-    <View class="h-8 shrink-0 flex-row items-center gap-1 border-b border-border bg-surface-muted px-2">
+    <View class="h-8 shrink-0 flex-row items-center gap-1 bg-surface-muted px-2">
       <Text class="min-w-0 flex-1 text-[11px] font-medium text-foreground">{t("Files")}</Text>
       <IconButton testID="refresh-files" icon="refresh" compact label={t("Refresh files")}
         disabled={props.disabled || folders()[""]?.kind === "loading"} onPress={refresh} />

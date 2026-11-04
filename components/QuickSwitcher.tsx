@@ -77,6 +77,11 @@ export function QuickSwitcher(props: {
     for (const value of roots) append(value, 0);
     return result;
   });
+  function rowHeight(item: SwitcherItem) {
+    return item.detail ? DENSITY.detailedRowSize : DENSITY.compactRowSize;
+  }
+  const listHeight = computed(() => Math.min(264, Math.max(DENSITY.compactRowSize,
+    rows().reduce((height, row) => height + rowHeight(row.value), 0))));
   function toggleGroup(key: string) {
     const next = new Set(expanded());
     if (next.has(key)) next.delete(key); else next.add(key);
@@ -167,7 +172,7 @@ export function QuickSwitcher(props: {
     });
   });
   cleanup(() => { disposeBindings(); });
-  return <Popover open={open()} align="start" placement="bottom" offset={5} margin={8}
+  return <Popover open={open()} align="start" placement="bottom" offset={3} margin={6}
     onOpenChange={value => {
       open.set(value);
       props.onOpenChange(value);
@@ -190,31 +195,31 @@ export function QuickSwitcher(props: {
         revealRequest.set(null);
       }
     }}
-    popupClass="w-[400px] max-w-full overflow-hidden rounded border border-border bg-popover shadow-md"
+    popupClass="w-[360px] max-w-full overflow-hidden rounded border border-border/60 bg-popover shadow-sm"
     trigger={<View ref={props.onTriggerRef} role="button" focusable disabled={props.disabled} accessibilityLabel={props.label + " · " + props.value}
       tooltip={<Hint text={props.label + " · " + props.value} />}
-      class="h-7 min-w-0 flex-row items-center gap-1.5 rounded bg-muted/35 px-2 hover:bg-muted/70 disabled:opacity-35">
+      class="h-7 min-w-0 flex-row items-center gap-1 rounded px-1.5 hover:bg-muted/60 disabled:opacity-35">
       <Icon name={props.icon} size={13} muted />
       <Text class="text-[10px] text-muted-foreground">{props.label}</Text>
       <Text numberOfLines={1} class="max-w-40 min-w-0 text-[11px] font-medium text-foreground">{props.value}</Text>
       <Icon name="chevronDown" size={11} muted />
     </View>}>
-    <View class="gap-1 p-1.5">
+    <View class="gap-0.5 p-1">
       <Input autoFocus value={query()} onChange={value => query.set(value)} placeholder={props.placeholder} accessibilityLabel={props.placeholder}
         onCompositionChange={event => setComposing(event.composing)}
-        class="h-8 rounded bg-subtle-input px-2 text-[12px] text-foreground" />
-      <List ref={node => { list = node; const key = revealRequest(); if (key) untracked(() => revealKey(key)); }}
-        each={rows()} keyExtractor={row => row.value.key} estimatedItemSize={DENSITY.detailedRowSize} class="h-[264px] min-h-0"
-        empty={<Text class="px-2 py-3 text-[12px] text-muted-foreground">{t("No matching items")}</Text>}>
-        {item => <View class={DENSITY.detailedRow + " flex-row items-center rounded" + (item().value.key === highlightedKey() ? " bg-muted/70" : "")}
-          style={{ paddingLeft: item().depth * 12 }} onHoverIn={() => highlightedKey.set(item().value.key)}>
+        class="h-7 rounded bg-subtle-input px-1.5 text-[12px] text-foreground" />
+      <List scrollbar={false} ref={node => { list = node; const key = revealRequest(); if (key) untracked(() => revealKey(key)); }}
+        each={rows()} keyExtractor={row => row.value.key} estimatedItemSize={DENSITY.compactRowSize} class="min-h-0" style={{ height: listHeight() }}
+        empty={<Text class="px-1.5 py-2 text-[11px] text-muted-foreground">{t("No matching items")}</Text>}>
+        {item => <View class={"flex-row items-center rounded" + (item().value.key === highlightedKey() ? " bg-muted/70" : "")}
+          style={{ height: rowHeight(item().value), paddingLeft: item().depth * 12 }} onHoverIn={() => highlightedKey.set(item().value.key)}>
           {item().count > 0 ? <Button accessibilityLabel={t(item().expanded ? "Collapse {name}" : "Expand {name}", { name: item().value.label })}
             onPress={() => { highlightedKey.set(item().value.key); toggleGroup(item().value.key); }} class="h-8 w-5 items-center justify-center hover:bg-muted">
             <Icon name={item().expanded ? "chevronDown" : "chevronRight"} size={11} muted />
           </Button> : item().depth > 0 ? <View class="w-5" /> : null}
           <Button selected={item().value.current} disabled={props.disabled}
             onPress={() => { highlightedKey.set(item().value.key); choose(item().value.key); }}
-            class={DENSITY.detailedRow + " min-w-0 flex-1 justify-center gap-0.5 px-2 hover:bg-muted selected:bg-accent/60"}>
+            class="min-w-0 flex-1 justify-center gap-0.5 px-1.5 hover:bg-muted selected:bg-accent/60" style={{ height: rowHeight(item().value) }}>
             <View class="flex-row items-center gap-2">
               <Text numberOfLines={1} class="min-w-0 flex-1 text-[12px] text-foreground">{item().value.worktree ?? item().value.label}</Text>
               {item().count > 0 ? <Text class="text-[10px] text-muted-foreground">{t("{count} worktrees", { count: item().count })}</Text> : null}
@@ -224,8 +229,8 @@ export function QuickSwitcher(props: {
           </Button>
         </View>}
       </List>
-      <View class="border-t border-border pt-1">{props.actions.map(action => <Button disabled={props.disabled}
-        onPress={() => { const scope = openedScope; close(); action.onSelect(scope); }} class="h-7 justify-center px-2 hover:bg-muted">
+      <View class="pt-0.5">{props.actions.map(action => <Button disabled={props.disabled}
+        onPress={() => { const scope = openedScope; close(); action.onSelect(scope); }} class="h-7 justify-center px-1.5 hover:bg-muted">
         <Text class="text-[11px] text-foreground">{action.label}</Text>
       </Button>)}</View>
     </View>

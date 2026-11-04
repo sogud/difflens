@@ -26,7 +26,7 @@
       "secondary": "#e9edf2",
       "secondary-foreground": "#3e4b59",
       "muted": "#e9edf2",
-      "muted-foreground": "#68727e",
+      "muted-foreground": "#626c78",
       "accent": "#e1e7ee",
       "accent-foreground": "#222b35",
       "border": "#dde3ea",
@@ -35,7 +35,11 @@
       "success": "#23805a",
       "warning": "#94631d",
       "destructive": "#c44448",
-      "destructive-foreground": "#ffffff"
+      "destructive-foreground": "#ffffff",
+      "diff-added": "#eaf5ef",
+      "diff-removed": "#fbecec",
+      "diff-added-word": "#cfeadd",
+      "diff-removed-word": "#f5d2d4"
     },
     "dark": {
       "background": "#191b1e",
@@ -72,7 +76,11 @@
       "success": "#7fbd9e",
       "warning": "#d5b16a",
       "destructive": "#e78385",
-      "destructive-foreground": "#191b1e"
+      "destructive-foreground": "#191b1e",
+      "diff-added": "#1b2922",
+      "diff-removed": "#2c2022",
+      "diff-added-word": "#254232",
+      "diff-removed-word": "#47282b"
     }
   }
 }

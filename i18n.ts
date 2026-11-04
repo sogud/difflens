@@ -5,8 +5,11 @@ import {
 import { workflowChinese, workflowTranslations } from "./locales/workflows";
 import { historyTranslations } from "./locales/history";
 import { settingsTranslations } from "./locales/settings";
+import { themeTranslations } from "./locales/themes";
 import { menuTranslations } from "./locales/menus";
 import { fileTranslations } from "./locales/files";
+import { directoryChinese, directoryTranslations } from "./locales/directory";
+import { syncChinese, syncTranslations } from "./locales/sync";
 import { gitTranslations } from "./locales/git";
 import { importTranslations } from "./locales/imports";
 import { workspaceTranslations } from "./locales/workspace";
@@ -17,6 +20,8 @@ export const SETTINGS_STORAGE_KEY = PREFERENCES_STORAGE_KEY;
 
 const chinese = {
   ...workflowChinese,
+  ...syncChinese,
+  ...directoryChinese,
   "Commit": "提交",
   "Branch": "分支",
   "Recent": "最近使用",
@@ -59,6 +64,13 @@ const chinese = {
   System: "跟随系统",
   Light: "浅色",
   Dark: "深色",
+  "Color theme": "配色主题",
+  Graphite: "石墨",
+  Slate: "雾蓝",
+  Sand: "暖砂",
+  Forest: "松林",
+  "High contrast": "高对比度",
+  "Accent color": "强调色",
   "Theme color": "主题色",
   Blue: "蓝色",
   Teal: "青绿色",
@@ -366,8 +378,8 @@ const chinese = {
 
 export type Message = keyof typeof chinese;
 const translations = {
-  ...historyTranslations, ...settingsTranslations, ...menuTranslations, ...fileTranslations,
-  ...gitTranslations, ...importTranslations, ...workspaceTranslations, ...workflowTranslations, ...updateTranslations,
+  ...historyTranslations, ...settingsTranslations, ...themeTranslations, ...menuTranslations, ...fileTranslations,
+  ...gitTranslations, ...syncTranslations, ...directoryTranslations, ...importTranslations, ...workspaceTranslations, ...workflowTranslations, ...updateTranslations,
 } satisfies Record<Message, TranslatedMessage>;
 
 export const MESSAGE_KEYS = Object.keys(chinese) as Message[];

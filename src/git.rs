@@ -1,5 +1,6 @@
 use super::{
-    ChangedFile, CommitSummary, RepositoryDetails, RepositoryNode, ScanWarning, WorkspaceScan,
+    ChangedFile, CommitSummary, PushOutcome, RepositoryChangeSnapshot, RepositoryDetails,
+    RepositoryNode, ScanWarning, WorkspaceScan,
 };
 use std::{
     collections::BTreeMap,
@@ -21,6 +22,7 @@ struct RepositoryStatus {
     upstream: Option<String>,
     ahead: usize,
     behind: usize,
+    sync_known: bool,
     changes: Vec<ChangedFile>,
 }
 
@@ -127,8 +129,22 @@ pub(super) fn diff_file(
     file_path: String,
     staged: bool,
 ) -> Result<String, String> {
-    let repository_path = validate_repository_root(&requested_path)?;
-    let status = read_status_at(&repository_path)?;
+    validate_relative_file_path(&file_path)?;
+    let repository_path = super::read_scope::validate(&requested_path)?;
+    let status_output = run_git_with_literal_pathspecs(
+        &repository_path,
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--no-ahead-behind",
+            "-z",
+            "--untracked-files=all",
+            "--",
+            &file_path,
+        ],
+    )?;
+    let status = parse_status(&status_output)?;
     let file = changed_file(&status, &file_path)?;
     ensure_actionable_file(file, &file_path)?;
     if file.conflicted {
@@ -141,7 +157,13 @@ pub(super) fn diff_file(
         return Err("This file has no working-tree changes.".to_owned());
     }
 
-    let mut arguments = vec!["diff", "--no-ext-diff", "--no-color", "--unified=3"];
+    let mut arguments = vec![
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--unified=3",
+    ];
     if file.untracked && !staged {
         arguments.push("--no-index");
     } else if staged {
@@ -205,6 +227,88 @@ pub(super) fn pull(requested_path: PathBuf) -> Result<RepositoryDetails, String>
 
 pub(super) fn push(requested_path: PathBuf) -> Result<RepositoryDetails, String> {
     perform_action(requested_path, RepositoryAction::Push)
+}
+
+pub(super) fn repository_changes(
+    directory: PathBuf,
+    requested_path: PathBuf,
+) -> Result<RepositoryChangeSnapshot, String> {
+    let directory =
+        fs::canonicalize(directory).map_err(|error| format!("Cannot open directory: {error}"))?;
+    if !directory.is_dir() {
+        return Err("The workspace path must be a directory.".into());
+    }
+    let root = crate::read_scope::validate(&requested_path)?;
+    if !root.starts_with(&directory) {
+        return Err("The repository is outside the selected directory.".into());
+    }
+    let status = read_status_at(&root)?;
+    let total_files = status.changes.len();
+    let has_commits = status.has_commits();
+    let branch_name = (status.branch_head != "(detached)").then_some(status.branch_head);
+    let mut changes = Vec::new();
+    let mut bytes = 0;
+    for file in status.changes.into_iter().take(5000) {
+        bytes += file.path.len() + file.old_path.as_ref().map_or(0, String::len) + 128;
+        if bytes > 1024 * 1024 {
+            break;
+        }
+        changes.push(file);
+    }
+    Ok(RepositoryChangeSnapshot {
+        path: path_to_string(&root),
+        head_label: status.head_label,
+        branch_name,
+        has_commits,
+        has_upstream: status.upstream.is_some(),
+        upstream: status.upstream,
+        ahead: status.ahead,
+        behind: status.behind,
+        sync_known: status.sync_known,
+        remote_names: list_remotes(&root)?,
+        changes,
+        total_files,
+    })
+}
+
+pub(super) fn push_with_outcome(requested_path: PathBuf) -> Result<PushOutcome, String> {
+    let root = validate_repository_root(&requested_path)?;
+    let status = read_status_at(&root)?;
+    push_at(&root, &status)?;
+    let (details, refresh_error) = match inspect_repository_at(&root) {
+        Ok(details) => (Some(details), None),
+        Err(error) => (None, Some(error)),
+    };
+    Ok(PushOutcome {
+        branch_name: status.branch_head,
+        details,
+        refresh_error,
+    })
+}
+
+fn push_at(root: &Path, status: &RepositoryStatus) -> Result<(), String> {
+    if !status.has_commits() {
+        return Err("Create a commit before pushing this branch.".into());
+    }
+    if status.branch_head == "(detached)" {
+        return Err("Switch to a local branch before pushing.".into());
+    }
+    if status.upstream.is_some() {
+        run_git(root, &["push"])?;
+    } else {
+        let remotes = list_remotes(root)?;
+        let remote = if remotes.iter().any(|remote| remote == "origin") {
+            "origin"
+        } else if remotes.len() == 1 {
+            remotes[0].as_str()
+        } else if remotes.is_empty() {
+            return Err("Configure a remote before pushing.".into());
+        } else {
+            return Err("Set an upstream branch before pushing.".into());
+        };
+        run_git(root, &["push", "--set-upstream", remote, "HEAD"])?;
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -479,6 +583,7 @@ fn read_status_at(repository_path: &Path) -> Result<RepositoryStatus, String> {
             "status",
             "--porcelain=v2",
             "--branch",
+            "--ahead-behind",
             "-z",
             "--untracked-files=all",
         ],
@@ -492,6 +597,7 @@ fn parse_status(output: &[u8]) -> Result<RepositoryStatus, String> {
     let mut upstream = None;
     let mut ahead = 0;
     let mut behind = 0;
+    let mut sync_known = false;
     let mut changes = Vec::new();
     let mut records = output.split(|byte| *byte == 0);
 
@@ -510,8 +616,14 @@ fn parse_status(output: &[u8]) -> Result<RepositoryStatus, String> {
             let mut counts = value
                 .split(|byte| byte.is_ascii_whitespace())
                 .filter(|part| !part.is_empty());
-            ahead = parse_ahead_behind(counts.next(), b'+');
-            behind = parse_ahead_behind(counts.next(), b'-');
+            if let (Some(ahead_count), Some(behind_count)) = (
+                parse_ahead_behind(counts.next(), b'+'),
+                parse_ahead_behind(counts.next(), b'-'),
+            ) {
+                ahead = ahead_count;
+                behind = behind_count;
+                sync_known = true;
+            }
         } else if record.starts_with(b"1 ") {
             let fields = split_fields(record, 9)?;
             changes.push(make_changed_file(
@@ -568,6 +680,7 @@ fn parse_status(output: &[u8]) -> Result<RepositoryStatus, String> {
         upstream,
         ahead,
         behind,
+        sync_known,
         changes,
     })
 }
@@ -628,15 +741,9 @@ fn display_path(path: &[u8]) -> (String, bool) {
     }
 }
 
-fn parse_ahead_behind(value: Option<&[u8]>, prefix: u8) -> usize {
-    let Some(value) = value else {
-        return 0;
-    };
-    let count = value.strip_prefix(&[prefix]).unwrap_or(value);
-    str::from_utf8(count)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(0)
+fn parse_ahead_behind(value: Option<&[u8]>, prefix: u8) -> Option<usize> {
+    let count = value?.strip_prefix(&[prefix])?;
+    str::from_utf8(count).ok()?.parse().ok()
 }
 
 fn inspect_repository_at(repository_path: &Path) -> Result<RepositoryDetails, String> {
@@ -666,6 +773,7 @@ fn inspect_repository_at(repository_path: &Path) -> Result<RepositoryDetails, St
         upstream: status.upstream,
         ahead: status.ahead,
         behind: status.behind,
+        sync_known: status.sync_known,
         remote_names,
         changes: status.changes,
         branches,
@@ -857,24 +965,7 @@ fn perform_action(
         }
         RepositoryAction::Push => {
             let status = read_status_at(&repository_path)?;
-            if status.upstream.is_some() {
-                run_git(&repository_path, &["push"])?;
-            } else {
-                let remotes = list_remotes(&repository_path)?;
-                let remote = if remotes.iter().any(|remote| remote == "origin") {
-                    "origin"
-                } else if remotes.len() == 1 {
-                    remotes[0].as_str()
-                } else if remotes.is_empty() {
-                    return Err("Configure a remote before pushing.".to_owned());
-                } else {
-                    return Err("Set an upstream branch before pushing.".to_owned());
-                };
-                run_git(
-                    &repository_path,
-                    &["push", "--set-upstream", remote, "HEAD"],
-                )?;
-            }
+            push_at(&repository_path, &status)?;
         }
     }
 

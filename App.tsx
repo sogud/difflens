@@ -1,14 +1,15 @@
-import { createDiffCache } from "./diff-cache";
+import { createDiffCache, createReadCache } from "./diff-cache";
 import { ReviewHeader, type ReviewFocus } from "./components/ReviewHeader";
 import { currentUiActivity, watchUiActivity, watchUiPresentation } from "./ui-activity";
 import { Hint } from "./components/Hint";
 import { closeWorkingEditors, openWorkingEditor, workingFileKey, type CloseWorkingEditors, type OpenWorkingEditors } from "./working-editor-tabs";
 import { ReviewFileRibbon, type ReviewFileEntry } from "./components/ReviewFileRibbon";
 import { GitOperationBanner } from "./components/GitOperationBanner";
+import type { PushFeedback } from "./git-sync";
 import { IconButton } from "./components/IconButton";
 import { Icon } from "./components/Icon";
 import { preferences, updatePreferences } from "./preferences";
-import { accentClasses, applyAppearance } from "./appearance";
+import { accentClasses, applyAppearance, appearanceThemeProps } from "./appearance";
 import { createPanelLayout, panelGripClass, panelHandleClass, PANEL_LIMITS } from "./panel-layout";
 import { restoreLanguage, t, type Message } from "./i18n";
 import { cleanup, computed, effect, ErrorBoundary, mount, signal, Storage, Text, untracked, View, setAccessibilityFocus, type YNode } from "nsh";
@@ -21,6 +22,7 @@ import { Button, ResizablePanel, ResizablePanelGroup } from "nsh/base";
 import {
   Workspace,
   type RepositoryDetails,
+  type FilePreview,
   type RepositoryNode,
   type WorkspaceScan,
   type ScanProgress,
@@ -32,6 +34,7 @@ import { QuickSwitcher, type SwitcherItem } from "./components/QuickSwitcher";
 import { workflowPresentation, workflowRequest, workflowTitles, type WorkflowKind } from "./git-workflows";
 import { RetainedPane } from "./components/RetainedPane";
 import { CommitReviewPane } from "./components/CommitReviewPane";
+import { DirectoryChangesPane } from "./components/DirectoryChangesPane";
 import { ChangesPane } from "./components/ChangesPane";
 import { DiffPane } from "./components/DiffPane";
 import { RepositoryPane } from "./components/RepositoryPane";
@@ -159,7 +162,7 @@ function actionSuccess(action: RepositoryAction): Message {
     case "stageAll":
       return "Changes staged.";
     case "commit":
-      return "Commit created.";
+      return "Committed locally.";
     case "createBranch":
       return "Branch created and checked out.";
     case "switchBranch":
@@ -216,7 +219,7 @@ function App() {
     settingsSection.set("updates");
     settingsOpen.set(true);
   }
-  const pickerOpen = signal<"repository" | "branch" | null>(null);
+  const pickerOpen = signal<"repository" | null>(null);
   const setupClone = signal<boolean | null>(null);
   const workflowForm = signal<{ root: string; request: GitOperationRequest } | null>(null);
   const gitContextState = signal<{ root: string; value: GitContext } | null>(null);
@@ -231,8 +234,19 @@ function App() {
   const reviewView = signal<ReviewView>({ kind: "diff" });
   const previewCache = signal<{ repositoryPath: string; state: FilePreviewState } | null>(null);
   const diffCache = createDiffCache();
+  const fileContentCache = createReadCache<FilePreview>(file => file.content.length * 2, 4);
+  function invalidateReadCaches() { diffCache.clear(); fileContentCache.clear(); }
   const repositoryRevision = signal(0);
   const repositoryTab = signal<RepositoryTab>("changes");
+  const directoryChanges = signal(false);
+  const directoryOpening = signal(false);
+  const directoryRefresh = signal(0);
+  let directoryFileRequest = 0;
+  effect(() => {
+    void activeKey();
+    untracked(() => { directoryChanges.set(false); directoryOpening.set(false); directoryFileRequest += 1; });
+  });
+  const directoryChangesVisible = computed(() => directoryChanges() && repositoryTab() === "changes");
   const canvasSize = signal({ width: 1200, height: 700 });
   const presentation = signal<ReviewPresentation>({ kind: "review", auxiliary: "files" });
   const repositoryNavigationVisible = computed(() => { const state = presentation(); return state.kind === "review" && state.auxiliary === "repositories"; });
@@ -274,6 +288,7 @@ function App() {
     const root = selectedPath();
     if (!root || isOperating() || isScanning()) return;
     pendingCommitFocus = root;
+    directoryChanges.set(false);
     changeRepositoryTab("changes");
     presentation.set({ kind: "review", auxiliary: "files" });
     if (composerInput?.root === root) { composerInput.node.focus(); pendingCommitFocus = null; }
@@ -283,7 +298,7 @@ function App() {
     if (pendingCommitFocus === root && selectedPath() === root) { node.focus(); pendingCommitFocus = null; }
   }
   function openTask(tab: RepositoryTab) {
-    if (!hasRepositories() || isScanning() || isOperating()) return;
+    if (!hasRepositories() || isScanning() || isOperating() || directoryOpening()) return;
     const sameTask = repositoryTab() === tab;
     const state = presentation();
     changeRepositoryTab(tab);
@@ -315,6 +330,7 @@ function App() {
     return state.kind === "ready" ? state.details.worktrees : [];
   });
   const operationState = signal<OperationState>({ kind: "idle" });
+  const pushFeedback = signal<PushFeedback>({ kind: "idle" });
   const displayMode = signal<DisplayMode>("nested");
   const commitMessage = signal("");
   const branchName = signal("");
@@ -384,11 +400,47 @@ function App() {
     const current = scanState();
     return current.kind === "ready" ? current.selectedPath : null;
   });
-  effect(() => { void selectedPath(); void repositoryRevision(); diffCache.clear(); });
+  effect(() => { void selectedPath(); void repositoryRevision(); invalidateReadCaches(); });
   const currentDetails = computed(() => {
     const state = detailState();
     return state.kind === "ready" && state.details.path === selectedPath() ? state.details : null;
   });
+  async function toggleChangesScope() {
+    if (isScanning() || isOperating() || directoryOpening()) return;
+    if (directoryChanges()) { directoryChanges.set(false); return; }
+    const source = activeSource();
+    if (!source) return;
+    if (source.kind === "repository" || (!inventoryComplete() && backgroundScan().kind !== "running")) {
+      const error = await loadSource({ kind: "directory", path: source.path, selectedPath: selectedPath() }, true);
+      if (error) return;
+    }
+    changeRepositoryTab("changes");
+    directoryChanges.set(true);
+    presentation.set({ kind: "review", auxiliary: "files" });
+  }
+  async function openDirectoryFile(root: string, path: string, staged: boolean) {
+    if (isScanning() || isOperating() || directoryOpening() || !flattenRepositories(repositories()).some(node => node.path === root)) return;
+    const request = ++directoryFileRequest;
+    const source = activeKey();
+    directoryOpening.set(true);
+    try {
+      await selectRepository(root);
+      if (request !== directoryFileRequest || activeKey() !== source || selectedPath() !== root) return;
+      changeRepositoryTab("changes");
+      await selectFileDiff(path, staged);
+    } finally { if (request === directoryFileRequest) directoryOpening.set(false); }
+  }
+  async function openDirectoryRepository(root: string) {
+    if (isScanning() || isOperating() || directoryOpening() || !flattenRepositories(repositories()).some(node => node.path === root)) return;
+    const source = activeKey();
+    const request = ++directoryFileRequest;
+    directoryOpening.set(true);
+    try {
+      await selectRepository(root);
+      if (request !== directoryFileRequest || activeKey() !== source || selectedPath() !== root) return;
+      changeRepositoryTab("changes"); directoryChanges.set(false);
+    } finally { if (request === directoryFileRequest) directoryOpening.set(false); }
+  }
   const availableRibbonEntries = computed<ReviewFileEntry[]>(() => {
     const files = currentDetails()?.changes ?? [];
     return [false, true].flatMap(staged => files.filter(file => staged ? file.staged : file.unstaged || file.untracked)
@@ -445,6 +497,14 @@ function App() {
     }
     rememberCurrentSession();
   }
+  effect(() => {
+    const root = selectedPath();
+    const branch = currentDetails()?.branchName;
+    untracked(() => {
+      const feedback = pushFeedback();
+      if (feedback.kind !== "idle" && (feedback.root !== root || feedback.branch !== branch)) pushFeedback.set({ kind: "idle" });
+    });
+  });
   const stagedFileCount = computed(() => currentDetails()?.changes.filter(file => file.staged).length ?? 0);
   const canCommit = computed(() => !isScanning() && !isOperating() && stagedFileCount() > 0 && commitMessage().trim().length > 0);
   function commit(expectedRoot = selectedPath()) {
@@ -600,7 +660,7 @@ function App() {
   }
 
   async function loadRepositoryDetails(repositoryPath: string) {
-    diffCache.clear();
+    invalidateReadCaches();
     rememberCurrentSession();
     historyRestore.set({ ...(repositorySessions[repositoryPath]?.history ?? freshHistory()) });
     const existingPreview = previewedFile();
@@ -834,7 +894,10 @@ function App() {
 
   function refreshSource() {
     const source = activeSource();
-    if (source && !isScanning() && !isOperating()) void loadSource(source);
+    if (source && !isScanning() && !isOperating()) {
+      if (directoryChanges()) directoryRefresh.set(directoryRefresh() + 1);
+      void loadSource(source);
+    }
   }
 
   function rescanSource() {
@@ -996,12 +1059,16 @@ function App() {
     if (!repository || isOperating()) return;
     lastPreviewPath.set(path);
     const request = ++fileRequest;
-    reviewView.set({ kind: "file", state: { kind: "loading", path } });
-    previewCache.set({ repositoryPath: repository, state: { kind: "loading", path } });
+    const cacheKey = JSON.stringify([repository, repositoryRevision(), path]);
+    const cachedFile = fileContentCache.get(cacheKey) ?? undefined;
+    const pending: FilePreviewState = { kind: "loading", path, cachedFile };
+    reviewView.set({ kind: "file", state: pending });
+    previewCache.set({ repositoryPath: repository, state: pending });
     rememberCurrentSession();
     try {
       const file = await Workspace.readFile(repository, path);
       if (request !== fileRequest || selectedPath() !== repository) return;
+      fileContentCache.set(cacheKey, file);
       reviewView.set({ kind: "file", state: { kind: "ready", file } });
       previewCache.set({ repositoryPath: repository, state: { kind: "ready", file } });
     } catch (error) {
@@ -1012,6 +1079,7 @@ function App() {
   }
 
   async function openWorktree(path: string) {
+    if (directoryOpening()) return;
     const current = scanState();
     if (current.kind === "ready" && flattenRepositories(current.result.repositories).some((node) => node.path === path)) {
       await selectRepository(path);
@@ -1035,6 +1103,11 @@ function App() {
 
     if (current.kind !== "ready" || current.details.path !== repositoryPath ||
         !current.details.changes.some(file => file.path === filePath && (staged ? file.staged : file.unstaged || file.untracked))) return;
+    const shown = diffState();
+    if (shown.kind === "ready" && shown.filePath === filePath && shown.staged === staged) {
+      reviewView.set({ kind: "diff" });
+      return;
+    }
     openedWorkingEditors.set(openWorkingEditor(openedWorkingEditors(), { path: filePath, staged }));
     reviewView.set({ kind: "diff" });
     const cacheKey = JSON.stringify([repositoryPath, repositoryRevision(), filePath, staged]);
@@ -1042,9 +1115,8 @@ function App() {
     const request = diffRequest() + 1;
     diffRequest.set(request);
     workingSelection.set({ path: filePath, staged });
-    diffState.set(cached !== null ? { kind: "ready", filePath, staged, patch: cached } : { kind: "loading", filePath, staged });
+    diffState.set({ kind: "loading", filePath, staged, cachedPatch: cached ?? undefined });
     rememberCurrentSession();
-    if (cached !== null) return;
     try {
       const patch = await Workspace.diffFile(repositoryPath, filePath, staged);
       if (diffRequest() !== request || selectedPath() !== repositoryPath) {
@@ -1078,14 +1150,19 @@ function App() {
     }
 
     const repositoryPath = currentScan.selectedPath;
-    diffCache.clear();
+    invalidateReadCaches();
     const request = operationRequest() + 1;
     operationRequest.set(request);
     detailRequest.set(detailRequest() + 1);
     diffRequest.set(diffRequest() + 1);
-    diffState.set({ kind: "idle" });
-    fileRequest += 1;
-    previewCache.set(null);
+    if (action.kind !== "push") {
+      diffState.set({ kind: "idle" });
+      fileRequest += 1;
+      previewCache.set(null);
+      if (action.kind !== "stageFile" && action.kind !== "unstageFile" && action.kind !== "stageAll") pushFeedback.set({ kind: "idle" });
+    } else {
+      pushFeedback.set({ kind: "running", root: repositoryPath, branch: currentDetails()?.branchName ?? "" });
+    }
     operationState.set({ kind: "running", label: actionLabel(action) });
 
     try {
@@ -1124,9 +1201,17 @@ function App() {
         case "pull":
           details = await Workspace.pull(repositoryPath);
           break;
-        case "push":
-          details = await Workspace.push(repositoryPath);
+        case "push": {
+          const pushed = await Workspace.pushWithOutcome(repositoryPath);
+          if (operationRequest() !== request || selectedPath() !== repositoryPath) return;
+          pushFeedback.set({ kind: "confirmed", root: repositoryPath, branch: pushed.branchName, refreshError: pushed.refreshError });
+          if (!pushed.details) {
+            operationState.set({ kind: "succeeded", message: "Push confirmed" });
+            return;
+          }
+          details = pushed.details;
           break;
+        }
       }
 
       const latestScan = scanState();
@@ -1152,7 +1237,7 @@ function App() {
       scanState.set(updatedScan);
       detailState.set({ kind: "ready", details });
       repositoryRevision.set(repositoryRevision() + 1);
-      operationState.set({ kind: "succeeded", message: actionSuccess(action) });
+      operationState.set({ kind: "succeeded", message: action.kind === "push" ? "Push confirmed" : actionSuccess(action) });
       if (action.kind === "commit") {
         commitMessage.set("");
       }
@@ -1170,7 +1255,8 @@ function App() {
       const openFile = previewedFile();
       if (openFile) await previewFile(openFile);
     } catch (error) {
-      if (operationRequest() === request) {
+      if (operationRequest() === request && selectedPath() === repositoryPath) {
+        if (action.kind === "push" && pushFeedback().kind !== "confirmed") pushFeedback.set({ kind: "unconfirmed", root: repositoryPath, branch: currentDetails()?.branchName ?? "", error: getErrorMessage(error) });
         operationState.set({ kind: "failed", message: getErrorMessage(error) });
       }
     }
@@ -1215,7 +1301,7 @@ function App() {
   }
 
   async function showTools(root: string) {
-    if (isOperating() || isScanning()) return;
+    if (isOperating() || isScanning() || directoryOpening()) return;
     if (selectedPath() !== root) await selectRepository(root);
     if (selectedPath() === root) presentation.set({ kind: "review", auxiliary: "git" });
   }
@@ -1228,7 +1314,8 @@ function App() {
   async function executeWorkflow(plan: GitOperationPlan): Promise<GitOperationOutcome> {
     const root = selectedPath();
     if (!root || root !== plan.repositoryPath || isOperating()) throw new Error(t("Repository selection changed. Review the operation again."));
-    diffCache.clear();
+    invalidateReadCaches();
+    pushFeedback.set({ kind: "idle" });
     operationState.set({ kind: "running", label: "Git operation" });
     detailRequest.set(detailRequest() + 1);
     diffRequest.set(diffRequest() + 1);
@@ -1274,7 +1361,7 @@ function App() {
 
   effect(() => {
     const disabled =
-      isScanning() || isOperating() || importForm() !== null || settingsOpen() || pickerOpen() !== null || setupClone() !== null;
+      isScanning() || isOperating() || directoryOpening() || importForm() !== null || settingsOpen() || pickerOpen() !== null || setupClone() !== null;
     const active = activeSource();
     Window.setTitle(
       active ? folderName(active.path) + " — DiffLens" : "DiffLens",
@@ -1416,26 +1503,12 @@ function App() {
     if (!currentDetails()) return t("Reading repository");
     return t("Branches and Stash");
   }
-  function pullHint(): string {
-    if (!hasRepositories()) return t("Select a repository");
-    if (isScanning() || isOperating()) return t("Another operation is still running.");
-    if (!currentDetails()) return t("Reading repository");
-    if (!currentDetails()!.hasUpstream) return t("No upstream branch");
-    return t("Pull");
-  }
-  function pushHint(): string {
-    if (!hasRepositories()) return t("Select a repository");
-    if (isScanning() || isOperating()) return t("Another operation is still running.");
-    if (!currentDetails()) return t("Reading repository");
-    if (!currentDetails()!.remoteNames.length) return t("No remotes configured.");
-    return t("Push");
-  }
   const editorContent = <View testID="review-canvas" class="relative min-h-0 min-w-0 flex-1">
     <ReviewFileRibbon entries={ribbonEntries()} selection={ribbonSelection()} repositoryPath={selectedPath()}
       onClose={(file, mode, root) => closeWorkingTabs(file, mode, root)}
       visible={presentation().kind === "review" && repositoryTab() === "changes" && hasRepositories()}
-      disabled={isScanning() || isOperating() || !currentDetails()} navigationOpen={fileNavigationVisible()}
-      onToggleNavigation={() => toggleNavigation("files")} onSelect={(path, staged) => { void selectFileDiff(path, staged); }} />
+      disabled={isScanning() || isOperating() || !currentDetails()}
+      onSelect={(path, staged) => { void selectFileDiff(path, staged); }} />
     <View class="relative min-h-0 min-w-0 flex-1">
       {hasRepositories() ? <>
         <RetainedPane active={repositoryTab() === "changes"}><DiffPane diff={diffState()} focus={reviewFocus("changes")} /></RetainedPane>
@@ -1459,20 +1532,18 @@ function App() {
   </View>;
 
   return (
-    <View class="min-h-0 flex-1 flex-col bg-chrome text-foreground" onLayout={() => { rootLaidOut = true; acknowledgeStartup(); }}>
+    <View {...appearanceThemeProps()} class="min-h-0 flex-1 flex-col bg-chrome text-foreground" onLayout={() => { rootLaidOut = true; acknowledgeStartup(); }}>
       <View class="bg-chrome">
         <View
           testID="window-toolbar"
           desktop={{ windowDrag: true }}
           style={{
             height: Math.max(36, titleBar().height),
-            paddingLeft: titleBar().left + 12,
-            paddingRight: titleBar().right + 12,
+            paddingLeft: titleBar().left + 8,
+            paddingRight: titleBar().right + 8,
           }}
           class="flex-row items-center gap-1.5"
         >
-          <Icon name="lens" size={13} />
-          <Text class="text-[12px] font-semibold text-foreground">DiffLens</Text>
           <QuickSwitcher label={t("Repository")} value={selectedPath() ? folderName(selectedPath()!) : t("Choose repository")}
             icon="folder" placeholder={t("Search repositories…")} scope={selectedPath()} disabled={isScanning() || isOperating()}
             items={repositoryChoices} onSelect={path => { void openWorktree(path); }} onTriggerRef={node => { repositoryOpener = node; }}
@@ -1481,17 +1552,18 @@ function App() {
               { label: t("Manage repositories…"), onSelect: () => presentation.set({ kind: "review", auxiliary: "repositories" }) },
               { label: t("Add Repository…"), onSelect: () => { void chooseSource("repository"); } },
               { label: t("Add Directory…"), onSelect: () => { void chooseSource("directory"); } },
+              { label: t("Clone repository…"), onSelect: () => setupClone.set(true) },
             ]} />
-          <QuickSwitcher label={t("Branch")} value={currentDetails()?.branchName ?? currentDetails()?.headLabel ?? "-"}
-            icon="worktree" placeholder={t("Search branches…")} scope={selectedPath()} disabled={isScanning() || isOperating() || !currentDetails()}
-            items={() => (currentDetails()?.branches ?? []).map(branch => ({ key: branch, label: branch, current: branch === currentDetails()?.branchName }))
-              .sort((left, right) => Number(right.current) - Number(left.current) || left.label.localeCompare(right.label))}
-            onSelect={(branch, root) => { if (root && root === selectedPath() && branch !== currentDetails()?.branchName) void performRepositoryAction({ kind: "switchBranch", branchName: branch }, root); }}
-            onOpenChange={open => pickerOpen.set(open ? "branch" : pickerOpen() === "branch" ? null : pickerOpen())}
-            actions={[
-              { label: t("Create branch…"), onSelect: root => { if (root && root === selectedPath()) requestWorkflow(workflowRequest("createBranch"), root); } },
-              { label: t("Branches and Stash"), onSelect: root => { if (root && root === selectedPath()) void showTools(root); } },
-            ]} />
+          <View tooltip={<Hint text={t("Branch") + " · " + (currentDetails()?.branchName ?? currentDetails()?.headLabel ?? "-") + "\n" + t("Branches and Stash")} />}>
+            <Button testID="open-current-branch" selected={gitNavigationVisible()} disabled={isScanning() || isOperating() || !currentDetails()}
+              accessibilityLabel={t("Branch") + " · " + (currentDetails()?.branchName ?? currentDetails()?.headLabel ?? "-")}
+              onPress={() => { const root = selectedPath(); if (root) void showTools(root); }}
+              class="h-7 min-w-0 flex-row items-center gap-1 rounded px-1.5 hover:bg-muted/60 selected:bg-muted/60 disabled:opacity-35">
+              <Icon name="worktree" size={13} muted />
+              <Text class="text-[10px] text-muted-foreground">{t("Branch")}</Text>
+              <Text numberOfLines={1} class="max-w-40 min-w-0 text-[11px] font-medium text-foreground">{currentDetails()?.branchName ?? currentDetails()?.headLabel ?? "-"}</Text>
+            </Button>
+          </View>
           <View class="min-w-0 flex-1 flex-row items-center justify-center px-3">
             {(() => {
               const activity = uiActivity();
@@ -1513,21 +1585,6 @@ function App() {
               <Text numberOfLines={1} class="text-[11px] text-foreground">{label}</Text>
             </Button>;
           })()}
-          {currentDetails() ? <Text class="pr-2 text-[10px] text-muted-foreground">{t("{count} files", { count: currentDetails()!.changes.length })}</Text> : null}
-          <IconButton icon="pull" hint={pullHint()} label={t("Pull")} compact disabled={isScanning() || isOperating() || !currentDetails()?.hasUpstream}
-            onPress={() => { const root = selectedPath(); if (root) void performRepositoryAction({ kind: "pull" }, root); }} />
-          <IconButton icon="push" hint={pushHint()} label={t("Push")} compact disabled={isScanning() || isOperating() || !currentDetails()?.remoteNames.length}
-            onPress={() => { const root = selectedPath(); if (root) void performRepositoryAction({ kind: "push" }, root); }} />
-          <IconButton icon="more" label={t("More actions")} compact disabled={isScanning() || isOperating()}
-            onPress={() => { void DesktopMenu.popup([
-              { label: t("Refresh"), disabled: !activeSource(), onSelect: refreshSource },
-              { label: t("Fetch"), disabled: !currentDetails()?.remoteNames.length, onSelect: () => { const root = selectedPath(); if (root) void performRepositoryAction({ kind: "fetch" }, root); } },
-              ...(activeSource()?.kind === "directory" ? [{ label: t("Rescan repositories"), onSelect: rescanSource }] : []),
-              { type: "separator" },
-              { label: t("Manage repositories…"), onSelect: () => presentation.set({ kind: "review", auxiliary: "repositories" }) },
-              { label: t("Clone repository…"), onSelect: () => setupClone.set(true) },
-              { label: t("Settings"), onSelect: openSettings },
-            ]); }} />
         </View>
         {(() => { const notice = scanNotice(); return notice ? <Text class="px-3 pb-2 text-[11px] text-muted-foreground">{t(notice)}</Text> : null; })()}
         {sourceError() ? (
@@ -1542,8 +1599,8 @@ function App() {
         {layoutError() ? <Text testID="layout-error" class="px-3 pb-2 text-[11px] text-destructive">{layoutError()}</Text> : null}
       </View>
 
-      <View class="min-h-0 flex-1 flex-row border-t border-border">
-        <View testID="review-navigation-rail" class={presentation().kind === "focus" ? "hidden" : "w-[42px] shrink-0 items-center gap-1 border-r border-border bg-chrome py-1"}>
+      <View class="min-h-0 flex-1 flex-row">
+        <View testID="review-navigation-rail" class={presentation().kind === "focus" ? "hidden" : "w-[42px] shrink-0 items-center gap-1 border-r border-border/40 bg-chrome py-1"}>
           <IconButton ref={node => { fileOpener = node; }} icon="nested" testID="changes-tab" label={t("Changes")} hint={reviewTabHint("Changes")}
             selected={repositoryTab() === "changes" && !gitNavigationVisible() && !repositoryNavigationVisible()} disabled={!hasRepositories() || isScanning() || isOperating()} onPress={() => openTask("changes")} />
           <IconButton icon="file" testID="files-tab" label={t("Files")} hint={reviewTabHint("Files")}
@@ -1574,7 +1631,7 @@ function App() {
               size={Math.min(panelLayout.sizes().sidebar, Math.max(PANEL_LIMITS.sidebar.min, canvasSize().width - 328))}
               minSize={PANEL_LIMITS.sidebar.min} maxSize={Math.max(PANEL_LIMITS.sidebar.min, Math.min(PANEL_LIMITS.sidebar.max, canvasSize().width - 328))}
               onResize={size => panelLayout.resize("sidebar", size)} class="min-h-0 overflow-hidden bg-chrome">
-              <View class="h-8 flex-row items-center justify-between border-b border-border px-2"><Text class="text-[11px] text-muted-foreground">{t("Repositories")}</Text>
+              <View class="h-8 flex-row items-center justify-between px-2"><Text class="text-[11px] text-muted-foreground">{t("Repositories")}</Text>
                 <IconButton icon="stop" compact label={t("Close navigation")} testID="close-repository-drawer" onPress={() => toggleNavigation("repositories")} /></View>
                   <RepositoryPane
                     onTools={(root) => { void showTools(root); }} onSetup={(clone) => setupClone.set(clone)}
@@ -1608,8 +1665,13 @@ function App() {
               size={Math.min(panelLayout.sizes().navigation, Math.max(PANEL_LIMITS.navigation.min, canvasSize().width - 328))}
               minSize={PANEL_LIMITS.navigation.min} maxSize={Math.max(PANEL_LIMITS.navigation.min, Math.min(PANEL_LIMITS.navigation.max, canvasSize().width - 328))}
               onResize={size => panelLayout.resize("navigation", size)} class="min-h-0 overflow-hidden bg-background">
-              <View class={repositoryTab() === "files" && currentDetails() ? "hidden" : "h-8 flex-row items-center border-b border-border bg-surface-muted px-2"}>
-                <Text class="min-w-0 flex-1 text-[11px] font-medium text-foreground">{t(repositoryTab() === "changes" ? "Changes" : repositoryTab() === "files" ? "Files" : "History")}</Text>
+              <View class={repositoryTab() === "files" && currentDetails() ? "hidden" : "h-8 flex-row items-center bg-surface-muted px-2"}>
+                {repositoryTab() === "changes" ? <Button testID="changes-scope" disabled={isScanning() || isOperating() || directoryOpening()}
+                  accessibilityLabel={t(directoryChanges() ? "Current repository" : "All repositories in this directory")}
+                  onPress={() => { void toggleChangesScope(); }} class="h-8 min-w-0 flex-1 flex-row items-center gap-1 pr-1 hover:bg-muted/50 disabled:opacity-35">
+                  <Text numberOfLines={1} class="min-w-0 flex-1 text-[11px] font-medium text-foreground">{t("Changes") + " · " + t(directoryChanges() ? "Current directory" : "Current repository")}</Text>
+                  <Icon name={directoryChanges() ? "folder" : "worktree"} size={12} muted />
+                </Button> : <Text class="min-w-0 flex-1 text-[11px] font-medium text-foreground">{t(repositoryTab() === "files" ? "Files" : "History")}</Text>}
                 {repositoryTab() === "changes" ? <IconButton icon={preferences().changeView === "tree" ? "flat" : "nested"} compact testID="toggle-changed-file-view"
                   label={t(preferences().changeView === "tree" ? "View changes as list" : "View changes as tree")}
                   onPress={() => {
@@ -1617,9 +1679,34 @@ function App() {
                     void updatePreferences({ changeView: preferences().changeView === "tree" ? "list" : "tree" })
                       .catch(cause => sourceError.set(t("Could not save settings: {error}", { error: getErrorMessage(cause) })));
                   }} /> : null}
+                {repositoryTab() === "changes" ? <IconButton icon="more" compact testID="changes-sync-actions" label={t("More actions")}
+                  disabled={isScanning() || isOperating() || !currentDetails()}
+                  onPress={() => {
+                    const root = selectedPath();
+                    const details = currentDetails();
+                    if (!root || !details) return;
+                    void DesktopMenu.popup([
+                      ...(!directoryChanges() ? [
+                        { label: t("Pull"), disabled: !details.hasUpstream, onSelect: () => { void performRepositoryAction({ kind: "pull" }, root); } },
+                        { label: t("Fetch"), disabled: !details.remoteNames.length, onSelect: () => { void performRepositoryAction({ kind: "fetch" }, root); } },
+                      ] : []),
+                      { label: t("Refresh"), onSelect: () => { if (root === selectedPath()) refreshSource(); } },
+                      ...(activeSource()?.kind === "directory" ? [{ label: t("Rescan repositories"), onSelect: () => { if (root === selectedPath()) rescanSource(); } }] : []),
+                    ]);
+                  }} /> : null}
                 <IconButton icon="stop" compact label={t("Close navigation")} testID="close-file-drawer" onPress={() => toggleNavigation("files")} />
               </View>
+                  <RetainedPane active={directoryChangesVisible()}>
+                    <DirectoryChangesPane active={directoryChangesVisible()} directory={activeSource()?.path ?? ""} repositories={repositories()}
+                      complete={inventoryComplete()} scanning={backgroundScan().kind === "running"} warnings={warnings()}
+                      refreshEpoch={directoryRefresh()} disabled={isScanning() || isOperating() || directoryOpening()}
+                      selectedRoot={selectedPath()} selectedFile={ribbonSelection()} latestDetails={currentDetails()}
+                      onFile={(root, path, staged) => { void openDirectoryFile(root, path, staged); }}
+                      onRepository={root => { void openDirectoryRepository(root); }} />
+                  </RetainedPane>
+                  <RetainedPane active={!directoryChangesVisible()}>
                   <ChangesPane onCloseNavigation={() => toggleNavigation("files")} onWorkflow={requestWorkflow} onOpenEditor={openEditor} revision={repositoryRevision()}
+                    pushFeedback={pushFeedback()} onRefresh={root => { if (root === selectedPath()) refreshSource(); }}
                     commitMessage={commitMessage()} onCommitMessageChange={onCommitMessageChange} onCommit={root => commit(root)}
                     canCommit={canCommit()} onComposerReady={registerComposer}
                     panelSizes={panelLayout.sizes()} onPanelResize={panelLayout.resize}
@@ -1641,6 +1728,7 @@ function App() {
                       void performRepositoryAction(action, repositoryPath);
                     }}
                   />
+                  </RetainedPane>
             </ResizablePanel>
             <ResizablePanel testID="git-sidebar" fixed visible={gitNavigationVisible() && hasRepositories()}
               size={Math.min(panelLayout.sizes().git, Math.max(PANEL_LIMITS.git.min, canvasSize().width - 328))}
@@ -1648,7 +1736,7 @@ function App() {
               onResize={size => panelLayout.resize("git", size)} class="min-h-0 overflow-hidden bg-surface-muted">
                   {(() => {
                     const root = selectedPath();
-                    return root ? <GitPane repositoryPath={root} context={gitContext()} loading={contextLoading()} disabled={isScanning() || isOperating()}
+                    return root ? <GitPane active={gitNavigationVisible()} repositoryPath={root} context={gitContext()} loading={contextLoading()} disabled={isScanning() || isOperating()}
                       request={workflowForm()?.root === root ? workflowForm()!.request : null}
                       onClose={() => toggleNavigation("git")} onRefresh={value => { if (value === selectedPath()) void refreshGitContext(value); }}
                       onRequest={requestWorkflow} onSwitch={(branch, value) => { void performRepositoryAction({ kind: "switchBranch", branchName: branch }, value); }}
@@ -1671,7 +1759,7 @@ function App() {
               : t("Unstaged") + " " + currentDetails()!.changes.filter(file => file.unstaged || file.untracked).length + "  ·  " + t("Staged") + " " + stagedFileCount()
             : activeSource()?.path ?? t("Add a repository or workspace directory to get started")}
         </Text>
-        {(() => { const operation = operationState(); return operation.kind === "succeeded" ? <Text numberOfLines={1} class="max-w-72 text-[10px] text-success">{t(operation.message)}</Text> : null; })()}
+        {(() => { const operation = operationState(); return operation.kind === "succeeded" ? <Text numberOfLines={1} class="max-w-96 text-[11px] text-success">{t(operation.message)}</Text> : null; })()}
       </View>
       {importDialog()}
       {setupClone() !== null ? <RepositorySetupDialog clone={setupClone()!} onClose={() => setupClone.set(null)}
