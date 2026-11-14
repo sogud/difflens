@@ -6,7 +6,7 @@
     "installed": [],
     "shared": []
   },
-  "repositories": [],
+  "repositories": ["difflens"],
   "paths": {
     "knowledge": "docs",
     "runtime": "runtime",
